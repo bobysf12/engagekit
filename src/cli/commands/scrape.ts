@@ -1,0 +1,86 @@
+import type { Command } from "commander";
+import { scrapeCoordinator } from "../../orchestration/scrape-coordinator";
+import { logger } from "../../core/logger";
+
+export const commands = (program: Command) => {
+  const scrapeCmd = program.command("scrape");
+
+  scrapeCmd
+    .command("daily")
+    .requiredOption("--platform <platform>", "Platform (threads or x)")
+    .option("--account <ids...>", "Specific account IDs (space-separated)")
+    .option("--no-notifications", "Skip notification collection")
+    .option("--no-own-threads", "Skip own thread collection")
+    .option("--search <queries...>", "Search queries (space-separated)")
+    .action(async (options) => {
+      logger.info("Starting daily scrape");
+
+      const result = await scrapeCoordinator.run({
+        platform: options.platform,
+        trigger: "daily",
+        accountIds: options.account ? options.account.map(Number) : undefined,
+        collectNotifications: options.notifications ?? true,
+        collectOwnThreads: options.ownThreads ?? true,
+        searchQueries: options.search || [],
+      });
+
+      logger.info({
+        runId: result.runId,
+        status: result.status,
+        accountsProcessed: result.accountsProcessed,
+        accountsSucceeded: result.accountsSucceeded,
+        accountsFailed: result.accountsFailed,
+        accountsSkipped: result.accountsSkipped,
+        totalPostsFound: result.totalPostsFound,
+        totalCommentsFound: result.totalCommentsFound,
+        totalSnapshotsWritten: result.totalSnapshotsWritten,
+      }, "Daily scrape completed");
+
+      if (result.errors.length > 0) {
+        logger.warn({ errors: result.errors }, "Errors occurred during scrape");
+      }
+
+      process.exit(result.status === "failed" ? 1 : 0);
+    });
+
+  scrapeCmd
+    .command("account")
+    .requiredOption("--account <id>", "Account ID")
+    .option("--no-notifications", "Skip notification collection")
+    .option("--no-own-threads", "Skip own thread collection")
+    .option("--search <queries...>", "Search queries (space-separated)")
+    .action(async (options) => {
+      const accountId = parseInt(options.account, 10);
+
+      logger.info({ accountId }, "Starting account scrape");
+
+      const account = await import("../../db/repositories/accounts.repo").then(m => m.accountsRepo.findById(accountId));
+      if (!account) {
+        logger.error({ accountId }, "Account not found");
+        process.exit(1);
+      }
+
+      const result = await scrapeCoordinator.run({
+        platform: account.platform as any,
+        trigger: "manual",
+        accountIds: [accountId],
+        collectNotifications: options.notifications ?? true,
+        collectOwnThreads: options.ownThreads ?? true,
+        searchQueries: options.search || [],
+      });
+
+      logger.info({
+        runId: result.runId,
+        status: result.status,
+        accountsProcessed: result.accountsProcessed,
+        accountsSucceeded: result.accountsSucceeded,
+        accountsFailed: result.accountsFailed,
+        accountsSkipped: result.accountsSkipped,
+        totalPostsFound: result.totalPostsFound,
+        totalCommentsFound: result.totalCommentsFound,
+        totalSnapshotsWritten: result.totalSnapshotsWritten,
+      }, "Account scrape completed");
+
+      process.exit(result.status === "failed" ? 1 : 0);
+    });
+};
