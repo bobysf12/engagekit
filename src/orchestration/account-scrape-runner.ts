@@ -97,6 +97,7 @@ export class AccountScrapeRunner {
       const uniquePosts = this.deduplicatePosts(collectedPosts);
       result.postsFound = uniquePosts.length;
       let metricsTimeoutStreak = 0;
+      const postIdByPlatformPostId = new Map<string, number>();
 
       for (const post of uniquePosts) {
         post.contentHash = computeContentHash(post.bodyText || "", post.mediaUrls);
@@ -117,6 +118,10 @@ export class AccountScrapeRunner {
         });
 
         if (postRecord) {
+          if (post.platformPostId) {
+            postIdByPlatformPostId.set(post.platformPostId, postRecord.id);
+          }
+
           result.snapshotsWritten++;
 
           // Extract metrics with bounded navigation timeouts in adapter
@@ -166,19 +171,46 @@ export class AccountScrapeRunner {
             logger.debug({ error, postUrl: post.postUrl }, "Comment extraction failed");
             return [];
           });
+
+          logger.debug(
+            { postUrl: post.postUrl, postId: post.platformPostId, extractedComments: comments.length },
+            "Comment extraction result",
+          );
+
           result.commentsFound += comments.length;
+
+          if (comments.length === 0) {
+            continue;
+          }
+
+          let parentPostId: number | null = null;
+          if (post.platformPostId) {
+            parentPostId = postIdByPlatformPostId.get(post.platformPostId) ?? null;
+          }
+
+          if (!parentPostId && post.platformPostId) {
+            const persisted = await postsRepo.findByPlatformPostId(this.account.platform, post.platformPostId);
+            parentPostId = persisted?.id ?? null;
+            if (persisted?.id) {
+              postIdByPlatformPostId.set(post.platformPostId, persisted.id);
+            }
+          }
+
+          if (!parentPostId) {
+            logger.debug(
+              { postUrl: post.postUrl, postId: post.platformPostId },
+              "Skipping comment persistence because parent post ID could not be resolved",
+            );
+            continue;
+          }
 
           for (const comment of comments) {
             comment.contentHash = computeContentHash(comment.bodyText || "", comment.mediaUrls);
 
-            const postFromDbList = await postsRepo.findByContentHash(post.contentHash);
-            const postFromDb = postFromDbList[0];
-            if (!postFromDb) continue;
-
             const commentRecord = await commentsRepo.create({
               platform: this.account.platform,
               platformCommentId: comment.platformCommentId,
-              parentPostId: postFromDb.id,
+              parentPostId,
               authorHandle: comment.authorHandle,
               authorDisplayName: comment.authorDisplayName,
               bodyText: comment.bodyText,
@@ -202,6 +234,16 @@ export class AccountScrapeRunner {
                 capturedAt: Math.floor(Date.now() / 1000),
                 runAccountId: this.runAccountId,
               });
+            } else {
+              logger.debug(
+                {
+                  postUrl: post.postUrl,
+                  postId: post.platformPostId,
+                  commentAuthor: comment.authorHandle,
+                  publishedAt: comment.publishedAt,
+                },
+                "Comment was not inserted (likely deduplicated)",
+              );
             }
           }
         } catch (error) {

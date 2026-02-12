@@ -5,7 +5,6 @@ import type { PlatformAdapter, CollectPostOptions, CollectCommentOptions } from 
 import { NavigationError } from "../../core/errors";
 import { THREADS_SELECTORS } from "./selectors";
 import { performThreadsLogin, validateThreadsSession } from "./auth";
-import { parseCommentFromElement } from "./parsers";
 import { actionDelay } from "../../core/cooldown";
 import { logger } from "../../core/logger";
 
@@ -313,49 +312,257 @@ export class ThreadsAdapter implements PlatformAdapter {
     options: CollectCommentOptions
   ): Promise<CollectedComment[]> {
     logger.debug({ postId: post.platformPostId }, "Expanding thread comments");
-    const comments: CollectedComment[] = [];
     const maxComments = options.maxComments ?? 50;
 
     if (!post.postUrl) {
-      return comments;
+      logger.debug({ postId: post.platformPostId }, "Skipping comment extraction because post URL is missing");
+      return [];
     }
 
     try {
-      await page.goto(post.postUrl, { waitUntil: "domcontentloaded", timeout: 4000 });
-      await page.waitForLoadState("networkidle", { timeout: 1500 }).catch(() => undefined);
+      await page.goto(post.postUrl, { waitUntil: "domcontentloaded", timeout: 12000 });
+      await page.waitForLoadState("domcontentloaded", { timeout: 4000 }).catch(() => undefined);
+      await page.waitForTimeout(800);
 
-      try {
-        const loadMoreButton = page.locator(THREADS_SELECTORS.COMMENTS.LOAD_MORE_COMMENTS).first();
-        let attempts = 0;
-        while ((await loadMoreButton.isVisible({ timeout: 2000 })) && attempts < 3) {
-          await loadMoreButton.click();
-          await page.waitForTimeout(1000);
-          attempts++;
+      let expandClicks = 0;
+      for (let pass = 0; pass < 6; pass++) {
+        const expandCandidates = page.locator(THREADS_SELECTORS.COMMENTS.LOAD_MORE_COMMENTS);
+        const count = await expandCandidates.count();
+        if (count === 0) {
+          await page.mouse.wheel(0, 1400);
+          await page.waitForTimeout(600);
+          continue;
         }
-      } catch {
-        logger.debug("No load more button or click failed");
+
+        let clickedInPass = 0;
+        const clickLimit = Math.min(count, 4);
+        for (let i = 0; i < clickLimit; i++) {
+          const button = expandCandidates.nth(i);
+          try {
+            if (await button.isVisible({ timeout: 600 })) {
+              await button.click({ timeout: 1200 });
+              clickedInPass++;
+              expandClicks++;
+              await page.waitForTimeout(700);
+            }
+          } catch {
+            // Ignore stale or detached buttons and continue.
+          }
+        }
+
+        if (clickedInPass === 0) {
+          await page.mouse.wheel(0, 1600);
+          await page.waitForTimeout(700);
+        }
       }
 
-      const commentElements = await page.locator(THREADS_SELECTORS.COMMENTS.COMMENT_CONTAINER).all();
-      const limit = Math.min(commentElements.length, maxComments);
+      type RawExtractedComment = {
+        platformCommentId: string | null;
+        authorHandle: string;
+        authorDisplayName: string;
+        bodyText: string | null;
+        commentUrl: string | null;
+        publishedAt: number | null;
+        mediaUrls: string[];
+      };
 
-      for (let i = 0; i < limit; i++) {
-        try {
-          const el = commentElements[i];
-          if (!el) continue;
-          const handle = await el.elementHandle();
-          if (!handle) continue;
-          const comment = await parseCommentFromElement(handle, 0);
-          if (comment) comments.push(comment);
-        } catch (error) {
-          logger.debug({ error, index: i }, "Failed to parse comment");
-        }
-      }
+      const extractedComments = await page.evaluate(
+        ({ max, postUrl, homeUrl }): RawExtractedComment[] => {
+          const cleanText = (value: string | null | undefined): string =>
+            (value || "").replace(/\s+/g, " ").trim();
+
+          const toAbsoluteUrl = (href: string | null | undefined): string | null => {
+            if (!href) return null;
+            if (/^https?:\/\//i.test(href)) return href;
+            if (href.startsWith("/")) return `${homeUrl}${href}`;
+            return null;
+          };
+
+          const extractHandleFromHref = (href: string | null | undefined): string | null => {
+            if (!href) return null;
+            const match = href.match(/\/@([^/?#]+)/);
+            return match?.[1] || null;
+          };
+
+          const sanitizeBodyCandidate = (value: string, authorHandle: string, authorDisplayName: string): string => {
+            let body = cleanText(value);
+            if (!body) return "";
+
+            const escapedHandle = authorHandle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+            const escapedDisplay = authorDisplayName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+            if (escapedHandle) {
+              body = body.replace(new RegExp(`@?${escapedHandle}`, "gi"), " ");
+            }
+            if (escapedDisplay) {
+              body = body.replace(new RegExp(`${escapedDisplay}`, "gi"), " ");
+            }
+
+            body = body
+              .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+              .replace(/([A-Za-z])(\d+\s*[smhdwy])/g, "$1 $2")
+              .replace(/(\d+\s*[smhdwy])([A-Za-z])/g, "$1 $2")
+              .replace(/liked by original author/gi, " ")
+              .replace(/post is shared to fediverse/gi, " ")
+              .replace(/audio is muted/gi, " ")
+              .replace(/view activity/gi, " ")
+              .replace(/follow|more|verified|author|translate|see translation|top/gi, " ")
+              .replace(/like|reply|repost|share|view|views/gi, " ")
+              .replace(/\b\d+\s*(?:second|minute|hour|day|week|month|year)s?\b/gi, " ")
+              .replace(/\b\d+\s*[smhdwy]\b/gi, " ")
+              .replace(/\b\d+\s*[jm]\b/gi, " ")
+              .replace(/\b\d+(?:[.,]\d+)?[KMB]?\b/g, " ")
+              .replace(/[|.,;:]+$/g, " ")
+              .replace(/\s+/g, " ")
+              .trim();
+
+            if (/^\d+\s*[smhdwy]$/i.test(body)) return "";
+            if (/^\d+\s*(?:second|minute|hour|day|week|month|year)s?$/i.test(body)) return "";
+            if (/^\d+\s*[jm]$/i.test(body)) return "";
+            return body;
+          };
+
+          const targetPostId = postUrl.match(/\/post\/([A-Za-z0-9_-]+)/)?.[1] || null;
+
+          const pickCommentContainer = (postLink: HTMLAnchorElement, commentPostId: string): HTMLElement | null => {
+            let cursor: HTMLElement | null = postLink;
+            const candidates: Array<{ node: HTMLElement; score: number; length: number }> = [];
+
+            for (let depth = 0; depth < 16 && cursor; depth++) {
+              cursor = cursor.parentElement as HTMLElement | null;
+              if (!cursor) break;
+
+              const text = cleanText(cursor.textContent);
+              const length = text.length;
+              if (length < 10 || length > 2200) continue;
+
+              const postLinks = Array.from(cursor.querySelectorAll('a[href*="/post/"]')) as HTMLAnchorElement[];
+              const matchingPostLinks = postLinks.filter((node) => {
+                const href = node.getAttribute("href") || "";
+                return href.includes(`/post/${commentPostId}`);
+              });
+              if (matchingPostLinks.length === 0) continue;
+              if (postLinks.length > 4) continue;
+
+              const authorLinks = cursor.querySelectorAll('a[href^="/@"]:not([href*="/post/"])').length;
+              if (authorLinks === 0) continue;
+
+              let score = 0;
+              if (matchingPostLinks.length === 1) score += 3;
+              if (postLinks.length <= 2) score += 2;
+              if (cursor.querySelector("time")) score += 1;
+              if (/\bmore\b/i.test(text)) score += 1;
+              score -= Math.floor(depth / 3);
+
+              candidates.push({ node: cursor, score, length });
+            }
+
+            if (candidates.length === 0) return null;
+            candidates.sort((a, b) => {
+              if (b.score !== a.score) return b.score - a.score;
+              return a.length - b.length;
+            });
+            return candidates[0]?.node || null;
+          };
+
+          const items: RawExtractedComment[] = [];
+          const seen = new Set<string>();
+
+          const postLinks = Array.from(document.querySelectorAll('a[href*="/post/"]')) as HTMLAnchorElement[];
+          for (const postLink of postLinks) {
+            if (items.length >= max) break;
+
+            const postHref = postLink.getAttribute("href") || "";
+            const platformCommentId = postHref.match(/\/post\/([A-Za-z0-9_-]+)/)?.[1] || null;
+            if (!platformCommentId) continue;
+            if (targetPostId && platformCommentId === targetPostId) continue;
+
+            const container = pickCommentContainer(postLink, platformCommentId);
+            if (!container) continue;
+
+            const authorLink = container.querySelector('a[href^="/@"]:not([href*="/post/"])') as HTMLAnchorElement | null;
+            if (!authorLink) continue;
+
+            const href = authorLink.getAttribute("href") || "";
+            const authorHandle = cleanText(extractHandleFromHref(href));
+            if (!authorHandle) continue;
+
+            const authorDisplayName = cleanText(authorLink.textContent) || authorHandle;
+
+            const textCandidates = Array.from(container.querySelectorAll('span[dir="auto"], div[dir="auto"]'))
+              .map((el) => cleanText(el.textContent))
+              .filter((text) => text.length > 0)
+              .filter((text) => {
+                if (text === authorDisplayName) return false;
+                if (text === authorHandle || text === `@${authorHandle}`) return false;
+                if (/^[\d.,]+[KMB]?$/i.test(text)) return false;
+                if (/^\d+\s*[smhdwy]$/i.test(text)) return false;
+                if (/^\d+\s*(second|minute|hour|day|week|month|year)s?$/i.test(text)) return false;
+                if (new RegExp(`^@?${authorHandle}\\s*\\d+\\s*[smhdwy]$`, "i").test(text)) return false;
+                if (new RegExp(`^${authorDisplayName}\\s*\\d+\\s*[smhdwy]$`, "i").test(text)) return false;
+                if (/^(like|reply|repost|view)s?$/i.test(text)) return false;
+                return true;
+              });
+
+            const bodyFromNodes =
+              textCandidates.length > 0 ? textCandidates.sort((a, b) => b.length - a.length)[0] || "" : "";
+            const normalizedBodyFromNodes = sanitizeBodyCandidate(bodyFromNodes, authorHandle, authorDisplayName);
+            const bodyFromContainer = sanitizeBodyCandidate(container.textContent || "", authorHandle, authorDisplayName);
+
+            const pickedBody =
+              bodyFromContainer.length > normalizedBodyFromNodes.length ? bodyFromContainer : normalizedBodyFromNodes;
+            const bodyText = pickedBody || null;
+
+            if (!bodyText) continue;
+            if (bodyText && /^\d+\s*[smhdwy]$/i.test(bodyText)) continue;
+            if (bodyText && /^\d+\s*(second|minute|hour|day|week|month|year)s?$/i.test(bodyText)) continue;
+            if (bodyText.replace(/[^A-Za-z0-9]/g, "").length < 2) continue;
+
+            const datetime = (container.querySelector("time") as HTMLTimeElement | null)?.getAttribute("datetime") || null;
+            const publishedAt = datetime ? Math.floor(new Date(datetime).getTime() / 1000) : null;
+
+            const mediaUrls: string[] = [];
+            const commentUrl = toAbsoluteUrl(postHref);
+
+            if (!bodyText && mediaUrls.length === 0) continue;
+
+            const dedupeKey = platformCommentId || `${authorHandle}|${bodyText || ""}|${publishedAt || 0}`;
+            if (seen.has(dedupeKey)) continue;
+            seen.add(dedupeKey);
+
+            items.push({
+              platformCommentId,
+              authorHandle,
+              authorDisplayName,
+              bodyText,
+              commentUrl,
+              publishedAt,
+              mediaUrls,
+            });
+          }
+
+          return items;
+        },
+        { max: maxComments, postUrl: post.postUrl, homeUrl: THREADS_SELECTORS.HOME_URL },
+      );
+
+      logger.debug(
+        {
+          postId: post.platformPostId,
+          postUrl: post.postUrl,
+          expandClicks,
+          extractedComments: extractedComments.length,
+        },
+        "Thread comments extraction completed",
+      );
+
+      return extractedComments.map((comment) => ({
+        ...comment,
+        contentHash: "",
+      }));
     } catch (error) {
-      logger.debug({ error }, "Failed to expand thread comments");
+      logger.debug({ error, postId: post.platformPostId, postUrl: post.postUrl }, "Failed to expand thread comments");
+      return [];
     }
-
-    return comments;
   }
 
   async extractMetrics(page: Page, entityType: "post" | "comment", entityRef: string): Promise<MetricSnapshot> {
