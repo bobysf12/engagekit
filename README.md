@@ -64,7 +64,7 @@ bun run cli accounts:update-status --id 1 --status active
 
 ### Authentication
 
-Perform headful login (required once per account):
+Perform headful login (browser opens, waits for manual login completion):
 ```bash
 bun run cli auth:login --account 1
 ```

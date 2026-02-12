@@ -8,8 +8,9 @@ export interface ScrapeConfig {
 }
 
 export interface ScrapeCollectorOptions {
-  collectNotifications: boolean;
-  collectOwnThreads: boolean;
+  collectHome: boolean;
+  collectProfiles: boolean;
+  profileHandles: string[];
   searchQueries: string[];
 }
 

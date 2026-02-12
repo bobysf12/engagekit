@@ -14,11 +14,11 @@ export class XAdapter implements PlatformAdapter {
     throw new AuthError("X adapter not yet implemented", "NOT_IMPLEMENTED");
   }
 
-  async collectNotifications(_page: Page, _options: CollectPostOptions): Promise<CollectedPost[]> {
+  async collectHome(_page: Page, _options: CollectPostOptions): Promise<CollectedPost[]> {
     throw new AuthError("X adapter not yet implemented", "NOT_IMPLEMENTED");
   }
 
-  async collectOwnThreads(_page: Page, _options: CollectPostOptions): Promise<CollectedPost[]> {
+  async collectProfileByHandle(_page: Page, _handle: string, _options: CollectPostOptions): Promise<CollectedPost[]> {
     throw new AuthError("X adapter not yet implemented", "NOT_IMPLEMENTED");
   }
 

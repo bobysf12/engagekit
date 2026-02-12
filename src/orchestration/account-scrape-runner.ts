@@ -28,8 +28,9 @@ export class AccountScrapeRunner {
   ) {}
 
   async run(options: {
-    collectNotifications: boolean;
-    collectOwnThreads: boolean;
+    collectHome: boolean;
+    collectProfiles: boolean;
+    profileHandles: string[];
     searchQueries: string[];
   }): Promise<ScrapeResult> {
     logger.info({ accountId: this.account.id, handle: this.account.handle }, "Starting account scrape");
@@ -55,6 +56,8 @@ export class AccountScrapeRunner {
       });
 
       page = await context.newPage();
+      page.setDefaultNavigationTimeout(12000);
+      page.setDefaultTimeout(12000);
 
       const authState = await this.adapter.validateSession(page);
       if (!authState.isValid) {
@@ -67,16 +70,22 @@ export class AccountScrapeRunner {
 
       const collectedPosts: any[] = [];
 
-      if (options.collectNotifications) {
-        const notificationPosts = await this.adapter.collectNotifications(page, postOptions);
-        collectedPosts.push(...notificationPosts);
+      if (options.collectHome) {
+        const homePosts = await this.adapter.collectHome(page, postOptions);
+        collectedPosts.push(...homePosts);
         await actionDelay();
       }
 
-      if (options.collectOwnThreads) {
-        const ownPosts = await this.adapter.collectOwnThreads(page, postOptions);
-        collectedPosts.push(...ownPosts);
-        await actionDelay();
+      if (options.collectProfiles) {
+        const handles = [this.account.handle, ...options.profileHandles]
+          .map((handle) => handle.replace(/^@/, "").trim())
+          .filter((handle, index, arr) => handle.length > 0 && arr.indexOf(handle) === index);
+
+        for (const handle of handles) {
+          const profilePosts = await this.adapter.collectProfileByHandle(page, handle, postOptions);
+          collectedPosts.push(...profilePosts);
+          await actionDelay();
+        }
       }
 
       for (const query of options.searchQueries) {
@@ -87,6 +96,7 @@ export class AccountScrapeRunner {
 
       const uniquePosts = this.deduplicatePosts(collectedPosts);
       result.postsFound = uniquePosts.length;
+      let metricsTimeoutStreak = 0;
 
       for (const post of uniquePosts) {
         post.contentHash = computeContentHash(post.bodyText || "", post.mediaUrls);
@@ -109,7 +119,23 @@ export class AccountScrapeRunner {
         if (postRecord) {
           result.snapshotsWritten++;
 
-          const metrics = await this.adapter.extractMetrics(page, "post", post.postUrl || "");
+          // Extract metrics with bounded navigation timeouts in adapter
+          type MetricSnapshot = { likesCount: number | null; repliesCount: number | null; repostsCount: number | null; viewsCount: number | null };
+          let metrics: MetricSnapshot = { likesCount: null, repliesCount: null, repostsCount: null, viewsCount: null };
+          if (metricsTimeoutStreak < 3) {
+            try {
+              metrics = await this.adapter.extractMetrics(page, "post", post.postUrl || "");
+              metricsTimeoutStreak = 0;
+            } catch (error: any) {
+              if (error?.name === "TimeoutError") {
+                metricsTimeoutStreak++;
+              }
+              logger.debug({ error, postUrl: post.postUrl, metricsTimeoutStreak }, "Metrics extraction failed");
+            }
+          } else {
+            logger.debug({ postUrl: post.postUrl }, "Skipping metrics after repeated timeouts");
+          }
+          
           await metricsRepo.create({
             entityType: "post",
             entityId: postRecord.id,
@@ -136,7 +162,10 @@ export class AccountScrapeRunner {
 
       for (const post of uniquePosts.slice(0, 10)) {
         try {
-          const comments = await this.adapter.expandThreadComments(page, post, commentOptions);
+          const comments = await this.adapter.expandThreadComments(page, post, commentOptions).catch((error) => {
+            logger.debug({ error, postUrl: post.postUrl }, "Comment extraction failed");
+            return [];
+          });
           result.commentsFound += comments.length;
 
           for (const comment of comments) {

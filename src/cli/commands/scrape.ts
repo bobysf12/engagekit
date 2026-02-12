@@ -7,18 +7,25 @@ export const commands = (program: Command) => {
     .command("scrape:daily")
     .requiredOption("--platform <platform>", "Platform (threads or x)")
     .option("--account <ids...>", "Specific account IDs (space-separated)")
+    .option("--no-home", "Skip home feed collection")
+    .option("--no-profiles", "Skip profile collection")
+    .option("--profile-handle <handles...>", "Additional profile handles (space-separated)")
     .option("--no-notifications", "Skip notification collection")
     .option("--no-own-threads", "Skip own thread collection")
     .option("--search <queries...>", "Search queries (space-separated)")
     .action(async (options) => {
       logger.info("Starting daily scrape");
 
+      const collectHome = (options.home ?? true) && (options.notifications ?? true);
+      const collectProfiles = (options.profiles ?? true) && (options.ownThreads ?? true);
+
       const result = await scrapeCoordinator.run({
         platform: options.platform,
         trigger: "daily",
         accountIds: options.account ? options.account.map(Number) : undefined,
-        collectNotifications: options.notifications ?? true,
-        collectOwnThreads: options.ownThreads ?? true,
+        collectHome,
+        collectProfiles,
+        profileHandles: options.profileHandle || [],
         searchQueries: options.search || [],
       });
 
@@ -44,11 +51,17 @@ export const commands = (program: Command) => {
   program
     .command("scrape:account")
     .requiredOption("--account <id>", "Account ID")
+    .option("--no-home", "Skip home feed collection")
+    .option("--no-profiles", "Skip profile collection")
+    .option("--profile-handle <handles...>", "Additional profile handles (space-separated)")
     .option("--no-notifications", "Skip notification collection")
     .option("--no-own-threads", "Skip own thread collection")
     .option("--search <queries...>", "Search queries (space-separated)")
     .action(async (options) => {
       const accountId = parseInt(options.account, 10);
+
+      const collectHome = (options.home ?? true) && (options.notifications ?? true);
+      const collectProfiles = (options.profiles ?? true) && (options.ownThreads ?? true);
 
       logger.info({ accountId }, "Starting account scrape");
 
@@ -62,8 +75,9 @@ export const commands = (program: Command) => {
         platform: account.platform as any,
         trigger: "manual",
         accountIds: [accountId],
-        collectNotifications: options.notifications ?? true,
-        collectOwnThreads: options.ownThreads ?? true,
+        collectHome,
+        collectProfiles,
+        profileHandles: options.profileHandle || [],
         searchQueries: options.search || [],
       });
 

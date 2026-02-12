@@ -1,46 +1,91 @@
 import type { ElementHandle, Page } from "playwright";
 import type { CollectedPost, CollectedComment, MetricSnapshot } from "../../domain/models";
-import { THREADS_SELECTORS, THREADS_SELECTORS_FALLBACK } from "./selectors";
+import { THREADS_SELECTORS } from "./selectors";
 
-export async function parsePostFromElement(element: ElementHandle, page: Page): Promise<CollectedPost | null> {
+type ExtractedPostData = {
+  postUrl: string | null;
+  platformPostId: string | null;
+  authorHandle: string;
+  authorDisplayName: string;
+  bodyText: string | null;
+  publishedAt: number | null;
+  mediaUrls: string[];
+};
+
+export async function parsePostFromElement(element: ElementHandle, _page: Page): Promise<CollectedPost | null> {
   try {
-    const authorHandleEl = await element.$(THREADS_SELECTORS.POSTS.POST_AUTHOR);
-    const authorDisplayNameEl = await element.$(THREADS_SELECTORS.POSTS.POST_AUTHOR);
-    const textEl = await element.$(THREADS_SELECTORS.POSTS.POST_TEXT);
-    const linkEl = await element.$(THREADS_SELECTORS.POSTS.POST_LINK);
+    const data = await element.evaluate((node) => {
+      const cleanText = (value: string | null | undefined): string => (value || "").replace(/\s+/g, " ").trim();
 
-    if (!authorHandleEl) return null;
+      const postLink = node.querySelector('a[href*="/post/"]') as any;
+      const postHref = postLink?.getAttribute("href") || null;
+      if (!postHref) return null;
 
-    const authorHandle = await authorHandleEl.textContent();
-    const authorDisplayName = await authorDisplayNameEl?.textContent();
-    const bodyText = await textEl?.textContent();
-    const postUrl = await linkEl?.getAttribute("href");
+      const normalizedUrl = postHref.startsWith("http") ? postHref : `https://www.threads.com${postHref}`;
+      const urlMatch = normalizedUrl.match(/\/@([^/]+)\/post\/([A-Za-z0-9_-]+)/);
 
-    const mediaEls = await element.$$(THREADS_SELECTORS.POSTS.POST_MEDIA);
-    const mediaUrls: string[] = [];
-    for (const media of mediaEls) {
-      const src = await media.getAttribute("src");
-      if (src) mediaUrls.push(src);
-    }
+      const authorLink = node.querySelector('a[href^="/@"]:not([href*="/post/"])') as any;
+      const authorHref = authorLink?.getAttribute("href") || "";
+      const authorFromUrl = (urlMatch?.[1] || "").replace(/^@/, "").trim();
+      const authorFromLink = authorHref.replace(/^\//, "").replace(/^@/, "").split("/")[0] || "";
+      const authorHandle = cleanText(authorFromUrl || authorFromLink);
 
-    const linkText = postUrl || "";
-    const urlMatch = linkText.match(/\/post\/(\w+)/);
-    const platformPostId: string | null = urlMatch?.[1] ?? null;
+      const authorDisplayName = cleanText(authorLink?.textContent) || authorHandle;
 
-    const timestampEl = await element.$(THREADS_SELECTORS.POSTS.POST_TIMESTAMP);
-    const datetime = await timestampEl?.getAttribute("datetime");
-    const publishedAt = datetime ? new Date(datetime).getTime() / 1000 : null;
+      const textNodes = Array.from(node.querySelectorAll('span[dir="auto"], div[dir="auto"]'))
+        .map((el: any) => cleanText(el.textContent))
+        .filter((text) => text.length > 0);
+
+      const filteredTextNodes = textNodes.filter((text) => {
+        if (!text) return false;
+        if (authorHandle && (text === authorHandle || text === `@${authorHandle}`)) return false;
+        if (authorDisplayName && text === authorDisplayName) return false;
+        if (/^[\d.,]+[KMB]?$/i.test(text)) return false;
+        if (/^(like|reply|repost|view)s?$/i.test(text)) return false;
+        return true;
+      });
+
+      const bodyText = filteredTextNodes.length > 0
+        ? filteredTextNodes.sort((a, b) => b.length - a.length)[0] || null
+        : null;
+
+      const timeEl = node.querySelector("time");
+      const datetime = timeEl?.getAttribute("datetime") || null;
+      const publishedAt = datetime ? new Date(datetime).getTime() / 1000 : null;
+
+      const mediaUrls = Array.from(node.querySelectorAll("img[src], video[src], video[poster]"))
+        .map((media: any) => {
+          if (media.tagName === "IMG") return media.src;
+          if (media.tagName === "VIDEO") return media.src || media.poster;
+          return "";
+        })
+        .filter((url) => !!url);
+
+      return {
+        postUrl: normalizedUrl,
+        platformPostId: urlMatch?.[2] || null,
+        authorHandle,
+        authorDisplayName,
+        bodyText,
+        publishedAt,
+        mediaUrls,
+      };
+    });
+
+    if (!data) return null;
+    const extracted = data as ExtractedPostData;
+    if (!extracted.platformPostId) return null;
 
     return {
-      platformPostId,
-      authorHandle: authorHandle?.replace(/^@/, "") || "",
-      authorDisplayName: authorDisplayName || authorHandle || "",
-      bodyText: bodyText || null,
-      contentHash: "", // Will be computed by caller
-      postUrl: postUrl ? `https://www.threads.net${postUrl}` : null,
+      platformPostId: extracted.platformPostId,
+      authorHandle: extracted.authorHandle,
+      authorDisplayName: extracted.authorDisplayName,
+      bodyText: extracted.bodyText,
+      contentHash: "",
+      postUrl: extracted.postUrl,
       threadRootPlatformPostId: null,
-      publishedAt,
-      mediaUrls,
+      publishedAt: extracted.publishedAt,
+      mediaUrls: extracted.mediaUrls,
     };
   } catch {
     return null;
@@ -75,7 +120,7 @@ export async function parseCommentFromElement(
       authorHandle: authorHandle?.replace(/^@/, "") || "",
       authorDisplayName: authorHandle || "",
       bodyText: bodyText || null,
-      contentHash: "", // Will be computed by caller
+      contentHash: "",
       commentUrl: null,
       publishedAt,
       mediaUrls,

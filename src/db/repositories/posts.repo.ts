@@ -42,12 +42,21 @@ export class PostsRepository {
   }
 
   async updateLastSeen(data: NewPost): Promise<Post | null> {
+    if (!data.platformPostId) return null;
+    
     const [result] = await this.db
       .update(posts)
       .set({
         lastSeenAt: Math.floor(Date.now() / 1000),
+        // Update bodyText if it was previously null/empty but we now have it
+        ...(data.bodyText ? { bodyText: data.bodyText } : {}),
       })
-      .where(eq(posts.contentHash, data.contentHash))
+      .where(
+        and(
+          eq(posts.platform, data.platform),
+          eq(posts.platformPostId, data.platformPostId)
+        )
+      )
       .returning();
     logger.debug({ postId: result?.id }, "Post lastSeenAt updated");
     return result ?? null;

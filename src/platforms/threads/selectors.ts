@@ -1,27 +1,32 @@
 export const THREADS_SELECTORS = {
-  HOME_URL: "https://www.threads.net",
+  HOME_URL: "https://www.threads.com",
 
   NAVIGATION: {
     HOME: "a[href='/']",
-    NOTIFICATIONS: 'a[aria-label*="Notifications"], a[href="/notifications"], a[href*="notifications"]',
+    NOTIFICATIONS:
+      'a[aria-label*="Notifications"], a[href="/notifications"], a[href*="notifications"]',
     PROFILE: 'a[href^="/@"], a[href^="/profile/"]',
-    SEARCH: "input[role='searchbox'], input[type='search'], input[placeholder*='Search']",
+    SEARCH:
+      "input[role='searchbox'], input[type='search'], input[placeholder*='Search']",
   },
 
   AUTH: {
-    LOGIN_BUTTON: "button[type='submit'], button:has-text('Log in'), button:has-text('Log in')",
+    LOGIN_BUTTON:
+      "button[type='submit'], button:has-text('Log in'), button:has-text('Log in')",
     EMAIL_INPUT: "input[type='email'], input[name='email']",
     PASSWORD_INPUT: "input[type='password'], input[name='password']",
-    LOGGED_IN_INDICATOR: 'nav a[href="/@"], nav a[href*="profile"], div[role="navigation"]',
-    LOGOUT_REQUIRED_INDICATOR: "button:has-text('Log in'), a:has-text('Log in')",
+    LOGGED_IN_INDICATOR:
+      'nav a[href="/@"], nav a[href*="profile"], div[role="navigation"]',
+    LOGOUT_REQUIRED_INDICATOR:
+      "button:has-text('Log in'), a:has-text('Log in')",
   },
 
   POSTS: {
     POST_ITEM: 'article, [data-testid="post"], [role="article"]',
     POST_TEXT: 'span[dir="auto"], [data-text="true"]',
-    POST_AUTHOR: '[data-username], [class*="username"], a[href^="/@"]',
-    POST_LINK: 'a[href^="/post/"], a[href^="/@"]',
-    POST_TIMESTAMP: 'time, [data-time]',
+    POST_AUTHOR: 'a[href^="/@"]:not([href*="/post/"])',
+    POST_LINK: 'a[href*="/post/"]',
+    POST_TIMESTAMP: "time, [data-time]",
     POST_MEDIA: "img, video",
     POST_ACTION_BAR: '[role="group"], [class*="actions"]',
     POST_LIKES: "span:has-text('like'), [class*='like-count']",
@@ -35,14 +40,10 @@ export const THREADS_SELECTORS = {
     COMMENT_TEXT: 'span[dir="auto"]',
     COMMENT_AUTHOR: '[data-username], [class*="username"]',
     COMMENT_AUTHOR_LINK: 'a[href^="/@"]',
-    COMMENT_TIMESTAMP: 'time',
+    COMMENT_TIMESTAMP: "time",
     COMMENT_MEDIA: "img, video",
-    LOAD_MORE_COMMENTS: "button:has-text('Show'), button:has-text('Load'), button:has-text('View')",
-  },
-
-  NOTIFICATIONS: {
-    NOTIFICATION_ITEM: '[role="listitem"] > a, [data-testid="notification"]',
-    NOTIFICATION_POST_LINK: 'a[href^="/post/"], a[href^="/@"]',
+    LOAD_MORE_COMMENTS:
+      "button:has-text('Show'), button:has-text('Load'), button:has-text('View')",
   },
 
   THREAD: {

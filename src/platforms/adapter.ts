@@ -15,9 +15,9 @@ export interface PlatformAdapter {
 
   validateSession(page: Page): Promise<AuthState>;
 
-  collectNotifications(page: Page, options: CollectPostOptions): Promise<CollectedPost[]>;
+  collectHome(page: Page, options: CollectPostOptions): Promise<CollectedPost[]>;
 
-  collectOwnThreads(page: Page, options: CollectPostOptions): Promise<CollectedPost[]>;
+  collectProfileByHandle(page: Page, handle: string, options: CollectPostOptions): Promise<CollectedPost[]>;
 
   collectSearch(page: Page, query: string, options: CollectPostOptions): Promise<CollectedPost[]>;
 

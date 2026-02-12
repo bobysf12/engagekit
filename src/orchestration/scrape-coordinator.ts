@@ -12,8 +12,9 @@ export interface ScrapeCoordinatorOptions {
   platform: Platform;
   trigger: "daily" | "manual";
   accountIds?: number[];
-  collectNotifications?: boolean;
-  collectOwnThreads?: boolean;
+  collectHome?: boolean;
+  collectProfiles?: boolean;
+  profileHandles?: string[];
   searchQueries?: string[];
 }
 
@@ -83,8 +84,9 @@ export class ScrapeCoordinator {
         try {
           const runner = new AccountScrapeRunner(account, adapter, runAccount.id);
           const scrapeResult = await runner.run({
-            collectNotifications: options.collectNotifications ?? true,
-            collectOwnThreads: options.collectOwnThreads ?? true,
+            collectHome: options.collectHome ?? true,
+            collectProfiles: options.collectProfiles ?? true,
+            profileHandles: options.profileHandles ?? [],
             searchQueries: options.searchQueries ?? [],
           });
 
