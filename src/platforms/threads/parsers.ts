@@ -15,16 +15,17 @@ type ExtractedPostData = {
 export async function parsePostFromElement(element: ElementHandle, _page: Page): Promise<CollectedPost | null> {
   try {
     const data = await element.evaluate((node) => {
+      const root = node as Element;
       const cleanText = (value: string | null | undefined): string => (value || "").replace(/\s+/g, " ").trim();
 
-      const postLink = node.querySelector('a[href*="/post/"]') as any;
+      const postLink = root.querySelector('a[href*="/post/"]') as any;
       const postHref = postLink?.getAttribute("href") || null;
       if (!postHref) return null;
 
       const normalizedUrl = postHref.startsWith("http") ? postHref : `https://www.threads.com${postHref}`;
       const urlMatch = normalizedUrl.match(/\/@([^/]+)\/post\/([A-Za-z0-9_-]+)/);
 
-      const authorLink = node.querySelector('a[href^="/@"]:not([href*="/post/"])') as any;
+      const authorLink = root.querySelector('a[href^="/@"]:not([href*="/post/"])') as any;
       const authorHref = authorLink?.getAttribute("href") || "";
       const authorFromUrl = (urlMatch?.[1] || "").replace(/^@/, "").trim();
       const authorFromLink = authorHref.replace(/^\//, "").replace(/^@/, "").split("/")[0] || "";
@@ -32,7 +33,7 @@ export async function parsePostFromElement(element: ElementHandle, _page: Page):
 
       const authorDisplayName = cleanText(authorLink?.textContent) || authorHandle;
 
-      const textNodes = Array.from(node.querySelectorAll('span[dir="auto"], div[dir="auto"]'))
+      const textNodes = Array.from(root.querySelectorAll('span[dir="auto"], div[dir="auto"]'))
         .map((el: any) => cleanText(el.textContent))
         .filter((text) => text.length > 0);
 
@@ -49,11 +50,11 @@ export async function parsePostFromElement(element: ElementHandle, _page: Page):
         ? filteredTextNodes.sort((a, b) => b.length - a.length)[0] || null
         : null;
 
-      const timeEl = node.querySelector("time");
+      const timeEl = root.querySelector("time");
       const datetime = timeEl?.getAttribute("datetime") || null;
       const publishedAt = datetime ? new Date(datetime).getTime() / 1000 : null;
 
-      const mediaUrls = Array.from(node.querySelectorAll("img[src], video[src], video[poster]"))
+      const mediaUrls = Array.from(root.querySelectorAll("img[src], video[src], video[poster]"))
         .map((media: any) => {
           if (media.tagName === "IMG") return media.src;
           if (media.tagName === "VIDEO") return media.src || media.poster;

@@ -5,7 +5,7 @@ import type { PlatformAdapter, CollectPostOptions, CollectCommentOptions } from 
 import { NavigationError } from "../../core/errors";
 import { THREADS_SELECTORS } from "./selectors";
 import { performThreadsLogin, validateThreadsSession } from "./auth";
-import { parseCommentFromElement, extractMetricsFromElement } from "./parsers";
+import { parseCommentFromElement } from "./parsers";
 import { actionDelay } from "../../core/cooldown";
 import { logger } from "../../core/logger";
 
@@ -19,6 +19,43 @@ interface ExtractedPost {
 
 export class ThreadsAdapter implements PlatformAdapter {
   readonly platform = "threads";
+
+  private parseCompactNumber(value: string | null | undefined): number | null {
+    if (!value) return null;
+
+    const normalized = value.replace(/\s+/g, "").replace(/,/g, "").trim();
+    if (!normalized) return null;
+
+    const match = normalized.match(/^(\d+(?:\.\d+)?)([KMB])?$/i);
+    if (!match) return null;
+
+    const base = Number.parseFloat(match[1] || "");
+    if (!Number.isFinite(base)) return null;
+
+    const suffix = (match[2] || "").toUpperCase();
+    if (suffix === "K") return Math.round(base * 1_000);
+    if (suffix === "M") return Math.round(base * 1_000_000);
+    if (suffix === "B") return Math.round(base * 1_000_000_000);
+    return Math.round(base);
+  }
+
+  private parseMetricByLabel(text: string, label: "like" | "reply" | "repost" | "view"): number | null {
+    if (!text) return null;
+
+    const compactPattern = "(\\d+(?:[.,]\\d+)?(?:\\s?[KMB])?)";
+    const patterns = [
+      new RegExp(`\\b${label}s?\\s*:?\\s*${compactPattern}`, "i"),
+      new RegExp(`${compactPattern}\\s*\\b${label}s?\\b`, "i"),
+    ];
+
+    for (const pattern of patterns) {
+      const match = text.match(pattern);
+      const parsed = this.parseCompactNumber(match?.[1]);
+      if (parsed !== null) return parsed;
+    }
+
+    return null;
+  }
 
   private async safeGoto(page: Page, url: string, source: string): Promise<void> {
     try {
@@ -331,13 +368,152 @@ export class ThreadsAdapter implements PlatformAdapter {
     try {
       await page.goto(entityRef, { waitUntil: "domcontentloaded", timeout: 3500 });
       await page.waitForLoadState("networkidle", { timeout: 1200 }).catch(() => undefined);
+      await page.waitForTimeout(700);
 
-      const postElement = page.locator(THREADS_SELECTORS.POSTS.POST_ITEM).first();
-      const elementHandle = await postElement.elementHandle({ timeout: 800 }).catch(() => null);
-      if (!elementHandle) {
-        return { likesCount: null, repliesCount: null, repostsCount: null, viewsCount: null };
+      const extraction = await page.evaluate((targetUrl) => {
+        const cleanText = (value: string | null | undefined): string =>
+          (value || "").replace(/\s+/g, " ").trim();
+
+        const pickContainer = (postLink: HTMLElement): HTMLElement | null => {
+          const selector = 'a[href*="/post/"]:not([href*="/media"])';
+          const candidates: Array<{ node: HTMLElement; score: number; length: number }> = [];
+          let cursor: HTMLElement | null = postLink;
+
+          for (let depth = 0; depth < 14 && cursor; depth++) {
+            cursor = cursor.parentElement as HTMLElement | null;
+            if (!cursor) break;
+
+            const text = cleanText(cursor.textContent);
+            const length = text.length;
+            if (length < 30 || length > 3000) continue;
+
+            const postLinks = cursor.querySelectorAll(selector).length;
+            if (postLinks !== 1) continue;
+
+            let score = 0;
+            if (/\b(?:like|reply|repost|share|views?)\b/i.test(text)) score += 4;
+            if (/\bmore\b/i.test(text)) score += 2;
+            score -= Math.floor(depth / 4);
+
+            candidates.push({ node: cursor, score, length });
+          }
+
+          if (candidates.length === 0) return null;
+          candidates.sort((a, b) => {
+            if (b.score !== a.score) return b.score - a.score;
+            return a.length - b.length;
+          });
+
+          return candidates[0]?.node ?? null;
+        };
+
+        const targetPostId = targetUrl.match(/\/post\/([A-Za-z0-9_-]+)/)?.[1] || null;
+        const texts: string[] = [];
+        const controlTexts: Array<{ label: string; parentText: string }> = [];
+
+        if (targetPostId) {
+          const links = document.querySelectorAll('a[href*="/post/"]');
+          for (const linkNode of Array.from(links)) {
+            const link = linkNode as HTMLAnchorElement;
+            const href = link.getAttribute("href") || "";
+            if (!href.includes(`/post/${targetPostId}`)) continue;
+
+            const container = pickContainer(link);
+            if (!container) continue;
+
+            const text = cleanText(container.textContent);
+            if (text) texts.push(text);
+
+            const controls = Array.from(container.querySelectorAll("[aria-label]"))
+              .map((node) => {
+                const label = (node.getAttribute("aria-label") || "").trim();
+                if (!/^(Like|Reply|Repost|Share|View activity)$/i.test(label)) return null;
+
+                const parentText = cleanText((node.parentElement?.textContent || "").slice(0, 120));
+                return { label: label.toLowerCase(), parentText };
+              })
+              .filter((item): item is { label: string; parentText: string } => item !== null);
+
+            controlTexts.push(...controls);
+          }
+        }
+
+        const bodyText = cleanText(document.body?.innerText || "");
+        if (bodyText) texts.push(bodyText);
+
+        if (controlTexts.length === 0) {
+          const fallbackControls = Array.from(document.querySelectorAll("[aria-label]"))
+            .map((node) => {
+              const label = (node.getAttribute("aria-label") || "").trim();
+              if (!/^(Like|Reply|Repost|Share|View activity)$/i.test(label)) return null;
+
+              const parentText = cleanText((node.parentElement?.textContent || "").slice(0, 120));
+              return {
+                label: label.toLowerCase(),
+                parentText,
+              };
+            })
+            .filter((item): item is { label: string; parentText: string } => item !== null);
+          controlTexts.push(...fallbackControls);
+        }
+
+        return {
+          candidateTexts: Array.from(new Set(texts)),
+          controlTexts,
+        };
+      }, entityRef);
+
+      const candidateTexts = extraction.candidateTexts;
+      const controlTexts = extraction.controlTexts;
+
+      let bestMetrics: MetricSnapshot = {
+        likesCount: null,
+        repliesCount: null,
+        repostsCount: null,
+        viewsCount: null,
+      };
+      let bestScore = -1;
+
+      for (const text of candidateTexts) {
+        const parsed: MetricSnapshot = {
+          likesCount: this.parseMetricByLabel(text, "like"),
+          repliesCount: this.parseMetricByLabel(text, "reply"),
+          repostsCount: this.parseMetricByLabel(text, "repost"),
+          viewsCount: this.parseMetricByLabel(text, "view"),
+        };
+
+        const filled = [parsed.likesCount, parsed.repliesCount, parsed.repostsCount, parsed.viewsCount].filter(
+          (value) => value !== null,
+        ).length;
+        if (filled > bestScore) {
+          bestMetrics = parsed;
+          bestScore = filled;
+        }
       }
-      return await extractMetricsFromElement(elementHandle);
+
+      const parseFromControls = (label: "like" | "reply" | "repost" | "view"): number | null => {
+        const labelRegex = new RegExp(`^${label}`);
+        for (const control of controlTexts) {
+          if (!labelRegex.test(control.label)) continue;
+          const parsed = this.parseMetricByLabel(control.parentText, label);
+          if (parsed !== null) return parsed;
+        }
+        return null;
+      };
+
+      bestMetrics.likesCount = bestMetrics.likesCount ?? parseFromControls("like");
+      bestMetrics.repliesCount = bestMetrics.repliesCount ?? parseFromControls("reply");
+      bestMetrics.repostsCount = bestMetrics.repostsCount ?? parseFromControls("repost");
+      bestMetrics.viewsCount = bestMetrics.viewsCount ?? parseFromControls("view");
+
+      const primaryText = candidateTexts[0] || "";
+      if (bestMetrics.likesCount === null && /\blike\b/i.test(primaryText)) bestMetrics.likesCount = 0;
+      if (bestMetrics.repliesCount === null && /\breply\b/i.test(primaryText)) bestMetrics.repliesCount = 0;
+      if (bestMetrics.repostsCount === null && /\brepost\b/i.test(primaryText)) bestMetrics.repostsCount = 0;
+
+      logger.debug({ entityRef, bestScore, metrics: bestMetrics }, "Threads metrics extraction result");
+
+      return bestMetrics;
     } catch (error) {
       logger.debug({ error }, "Failed to extract metrics");
       return { likesCount: null, repliesCount: null, repostsCount: null, viewsCount: null };
