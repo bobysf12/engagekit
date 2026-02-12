@@ -4,10 +4,8 @@ import { logger } from "../../core/logger";
 import { validateTransition } from "../../domain/account-state-machine";
 
 export const commands = (program: Command) => {
-  const accountsCmd = program.command("accounts");
-
-  accountsCmd
-    .command("add")
+  program
+    .command("accounts:add")
     .requiredOption("--platform <platform>", "Platform (threads or x)")
     .requiredOption("--handle <handle>", "Account handle (without @)")
     .option("--name <name>", "Display name")
@@ -31,8 +29,8 @@ export const commands = (program: Command) => {
       );
     });
 
-  accountsCmd
-    .command("list")
+  program
+    .command("accounts:list")
     .option("--platform <platform>", "Filter by platform")
     .action(async (options) => {
       const list = options.platform
@@ -45,8 +43,8 @@ export const commands = (program: Command) => {
       }
     });
 
-  accountsCmd
-    .command("update-status")
+  program
+    .command("accounts:update-status")
     .requiredOption("--id <id>", "Account ID")
     .requiredOption("--status <status>", "New status (active, needs_reauth, disabled)")
     .action(async (options) => {

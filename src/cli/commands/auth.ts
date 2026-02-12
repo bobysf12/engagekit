@@ -8,10 +8,8 @@ import { XAdapter } from "../../platforms/x";
 import { env } from "../../core/config";
 
 export const commands = (program: Command) => {
-  const authCmd = program.command("auth");
-
-  authCmd
-    .command("login")
+  program
+    .command("auth:login")
     .requiredOption("--account <id>", "Account ID")
     .action(async (options) => {
       const id = parseInt(options.account, 10);
@@ -60,8 +58,8 @@ export const commands = (program: Command) => {
       }
     });
 
-  authCmd
-    .command("check")
+  program
+    .command("auth:check")
     .requiredOption("--account <id>", "Account ID")
     .action(async (options) => {
       const id = parseInt(options.account, 10);

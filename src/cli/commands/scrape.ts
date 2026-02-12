@@ -3,10 +3,8 @@ import { scrapeCoordinator } from "../../orchestration/scrape-coordinator";
 import { logger } from "../../core/logger";
 
 export const commands = (program: Command) => {
-  const scrapeCmd = program.command("scrape");
-
-  scrapeCmd
-    .command("daily")
+  program
+    .command("scrape:daily")
     .requiredOption("--platform <platform>", "Platform (threads or x)")
     .option("--account <ids...>", "Specific account IDs (space-separated)")
     .option("--no-notifications", "Skip notification collection")
@@ -43,8 +41,8 @@ export const commands = (program: Command) => {
       process.exit(result.status === "failed" ? 1 : 0);
     });
 
-  scrapeCmd
-    .command("account")
+  program
+    .command("scrape:account")
     .requiredOption("--account <id>", "Account ID")
     .option("--no-notifications", "Skip notification collection")
     .option("--no-own-threads", "Skip own thread collection")

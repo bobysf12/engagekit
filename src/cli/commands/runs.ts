@@ -3,10 +3,8 @@ import { runsRepo } from "../../db/repositories/runs.repo";
 import { logger } from "../../core/logger";
 
 export const commands = (program: Command) => {
-  const runsCmd = program.command("runs");
-
-  runsCmd
-    .command("list")
+  program
+    .command("runs:list")
     .option("--limit <n>", "Number of runs to show", "20")
     .action(async (options) => {
       const limit = parseInt(options.limit, 10);

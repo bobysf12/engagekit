@@ -3,10 +3,8 @@ import { queueRepo } from "../../db/repositories/queue.repo";
 import { logger } from "../../core/logger";
 
 export const commands = (program: Command) => {
-  const queueCmd = program.command("queue");
-
-  queueCmd
-    .command("list")
+  program
+    .command("queue:list")
     .option("--status <status>", "Filter by status")
     .option("--limit <n>", "Number of items to show", "50")
     .action(async (options) => {
