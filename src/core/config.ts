@@ -15,6 +15,18 @@ const envSchema = z.object({
   SCRAPER_ACTION_DELAY_MIN_MS: z.coerce.number().default(600),
   SCRAPER_ACTION_DELAY_MAX_MS: z.coerce.number().default(1800),
   RUN_LOCK_TIMEOUT_SECONDS: z.coerce.number().default(3600),
+  TRIAGE_ENABLED: z.string().default("false").transform((v) => v === "true"),
+  DEEP_SCRAPE_ENABLED: z.string().default("false").transform((v) => v === "true"),
+  DRAFTS_ENABLED: z.string().default("false").transform((v) => v === "true"),
+  API_ENABLED: z.string().default("false").transform((v) => v === "true"),
+  SCHEDULER_ENABLED: z.string().default("false").transform((v) => v === "true"),
+  OPENROUTER_API_KEY: z.string().optional(),
+  OPENROUTER_MODEL: z.string().default("anthropic/claude-3-haiku"),
+  OPENROUTER_BASE_URL: z.string().default("https://openrouter.ai/api/v1"),
+  SELECTION_TOP_N: z.coerce.number().default(20),
+  SELECTION_SCORE_THRESHOLD: z.coerce.number().default(75),
+  API_PORT: z.coerce.number().default(3000),
+  API_HOST: z.string().default("127.0.0.1"),
 });
 
 export const env = envSchema.parse(process.env);

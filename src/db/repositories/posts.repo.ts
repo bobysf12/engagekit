@@ -1,4 +1,4 @@
-import { eq, and, desc, inArray } from "drizzle-orm";
+import { eq, and, desc, inArray, sql } from "drizzle-orm";
 import type { Post, NewPost } from "../schema";
 import { posts } from "../schema";
 import { getDb } from "../client";
@@ -89,6 +89,20 @@ export class PostsRepository {
       .from(posts)
       .where(eq(posts.platform, platform))
       .orderBy(desc(posts.publishedAt))
+      .limit(limit);
+  }
+
+  async listByRunAccount(runAccountId: number, accountId: number, sinceTimestamp: number, limit: number = 200): Promise<Post[]> {
+    return this.db
+      .select()
+      .from(posts)
+      .where(
+        and(
+          eq(posts.sourceAccountId, accountId),
+          sql`${posts.firstSeenAt} >= ${sinceTimestamp}`
+        )
+      )
+      .orderBy(desc(posts.firstSeenAt))
       .limit(limit);
   }
 }

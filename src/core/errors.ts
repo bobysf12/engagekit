@@ -46,3 +46,10 @@ export class ScraperError extends Error {
     this.name = "ScraperError";
   }
 }
+
+export class LLMError extends Error {
+  constructor(message: string, public code: string) {
+    super(message);
+    this.name = "LLMError";
+  }
+}

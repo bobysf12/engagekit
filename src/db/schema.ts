@@ -195,16 +195,159 @@ export const llmDrafts = sqliteTable(
   "llm_drafts",
   {
     id: integer("id").primaryKey({ autoIncrement: true }),
-    queueId: integer("queue_id").notNull().references(() => engagementQueue.id),
+    queueId: integer("queue_id").references(() => engagementQueue.id),
     promptVersion: text("prompt_version").notNull(),
     draftText: text("draft_text").notNull(),
     model: text("model"),
     status: text("status", { enum: ["generated", "approved", "rejected"] }).notNull().default("generated"),
     createdAt: integer("created_at").notNull().default(sql`(unixepoch())`),
     reviewedAt: integer("reviewed_at"),
+    runAccountId: integer("run_account_id").references(() => scrapeRunAccounts.id),
+    postId: integer("post_id").references(() => posts.id),
+    optionIndex: integer("option_index"),
+    inputContextJson: text("input_context_json"),
+    selectedAt: integer("selected_at"),
+    selectedBy: text("selected_by"),
   },
   (table) => ({
     queueCreatedIdx: index("llm_drafts_queue_created_idx").on(table.queueId, sql`created_at DESC`),
+    runAccountPostIdx: index("llm_drafts_run_account_post_idx").on(table.runAccountId, table.postId, sql`created_at DESC`),
+  })
+);
+
+export const engagementPolicies = sqliteTable(
+  "engagement_policies",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    accountId: integer("account_id").notNull().references(() => accounts.id),
+    name: text("name").notNull(),
+    topicsJson: text("topics_json").notNull(),
+    goalsJson: text("goals_json").notNull(),
+    avoidListJson: text("avoid_list_json").notNull(),
+    toneIdentity: text("tone_identity").notNull(),
+    preferredLanguagesJson: text("preferred_languages_json").notNull(),
+    isActive: integer("is_active").notNull().default(1),
+    createdAt: integer("created_at").notNull().default(sql`(unixepoch())`),
+    updatedAt: integer("updated_at").notNull().default(sql`(unixepoch())`),
+  },
+  (table) => ({
+    accountIdx: uniqueIndex("engagement_policies_account_idx").on(table.accountId),
+  })
+);
+
+export const engagementPolicySnapshots = sqliteTable(
+  "engagement_policy_snapshots",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    runAccountId: integer("run_account_id").notNull().references(() => scrapeRunAccounts.id),
+    policyId: integer("policy_id").references(() => engagementPolicies.id),
+    policySnapshotJson: text("policy_snapshot_json").notNull(),
+    promptVersion: text("prompt_version"),
+    createdAt: integer("created_at").notNull().default(sql`(unixepoch())`),
+  },
+  (table) => ({
+    runAccountIdx: uniqueIndex("engagement_policy_snapshots_run_account_idx").on(table.runAccountId),
+  })
+);
+
+export const postTriage = sqliteTable(
+  "post_triage",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    runAccountId: integer("run_account_id").notNull().references(() => scrapeRunAccounts.id),
+    postId: integer("post_id").notNull().references(() => posts.id),
+    relevanceScore: integer("relevance_score").notNull(),
+    relevanceLabel: text("relevance_label", { enum: ["keep", "maybe", "drop"] }).notNull(),
+    reasonsJson: text("reasons_json").notNull(),
+    action: text("action", { enum: ["reply", "quote", "save", "ignore"] }).notNull(),
+    confidence: integer("confidence").notNull(),
+    model: text("model"),
+    promptVersion: text("prompt_version"),
+    rank: integer("rank"),
+    isTop20: integer("is_top_20").notNull().default(0),
+    selectedForDeepScrape: integer("selected_for_deep_scrape").notNull().default(0),
+    createdAt: integer("created_at").notNull().default(sql`(unixepoch())`),
+  },
+  (table) => ({
+    runAccountPostIdx: uniqueIndex("post_triage_run_account_post_idx").on(table.runAccountId, table.postId),
+    selectionIdx: index("post_triage_selection_idx").on(table.runAccountId, table.selectedForDeepScrape, sql`relevance_score DESC`),
+  })
+);
+
+export const deepScrapeTasks = sqliteTable(
+  "deep_scrape_tasks",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    runAccountId: integer("run_account_id").notNull().references(() => scrapeRunAccounts.id),
+    postId: integer("post_id").notNull().references(() => posts.id),
+    status: text("status", { enum: ["pending", "running", "success", "failed"] }).notNull().default("pending"),
+    attemptCount: integer("attempt_count").notNull().default(0),
+    lastErrorCode: text("last_error_code"),
+    lastErrorDetail: text("last_error_detail"),
+    startedAt: integer("started_at"),
+    endedAt: integer("ended_at"),
+    createdAt: integer("created_at").notNull().default(sql`(unixepoch())`),
+    updatedAt: integer("updated_at").notNull().default(sql`(unixepoch())`),
+  },
+  (table) => ({
+    runAccountPostIdx: uniqueIndex("deep_scrape_tasks_run_account_post_idx").on(table.runAccountId, table.postId),
+    statusIdx: index("deep_scrape_tasks_status_idx").on(table.runAccountId, table.status),
+  })
+);
+
+export const draftFeedbackSignals = sqliteTable(
+  "draft_feedback_signals",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    runAccountId: integer("run_account_id").notNull().references(() => scrapeRunAccounts.id),
+    postId: integer("post_id").notNull().references(() => posts.id),
+    selectedDraftId: integer("selected_draft_id").references(() => llmDrafts.id),
+    rejectedDraftIdsJson: text("rejected_draft_ids_json"),
+    metadataJson: text("metadata_json"),
+    createdAt: integer("created_at").notNull().default(sql`(unixepoch())`),
+  },
+  (table) => ({
+    runAccountIdx: index("draft_feedback_signals_run_account_idx").on(table.runAccountId, sql`created_at DESC`),
+    postIdx: index("draft_feedback_signals_post_idx").on(table.postId),
+  })
+);
+
+export const cronJobs = sqliteTable(
+  "cron_jobs",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    accountId: integer("account_id").notNull().references(() => accounts.id),
+    name: text("name").notNull(),
+    cronExpr: text("cron_expr").notNull(),
+    timezone: text("timezone").notNull().default("UTC"),
+    enabled: integer("enabled").notNull().default(1),
+    pipelineConfigJson: text("pipeline_config_json"),
+    lastRunAt: integer("last_run_at"),
+    nextRunAt: integer("next_run_at"),
+    lastStatus: text("last_status"),
+    lastError: text("last_error"),
+    createdAt: integer("created_at").notNull().default(sql`(unixepoch())`),
+    updatedAt: integer("updated_at").notNull().default(sql`(unixepoch())`),
+  },
+  (table) => ({
+    accountIdx: index("cron_jobs_account_idx").on(table.accountId),
+    enabledIdx: index("cron_jobs_enabled_idx").on(table.enabled, table.nextRunAt),
+  })
+);
+
+export const cronJobRuns = sqliteTable(
+  "cron_job_runs",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    cronJobId: integer("cron_job_id").notNull().references(() => cronJobs.id),
+    scrapeRunId: integer("scrape_run_id").references(() => scrapeRuns.id),
+    status: text("status", { enum: ["running", "success", "failed"] }).notNull().default("running"),
+    startedAt: integer("started_at").notNull(),
+    endedAt: integer("ended_at"),
+    error: text("error"),
+  },
+  (table) => ({
+    cronJobIdx: index("cron_job_runs_cron_job_idx").on(table.cronJobId, sql`started_at DESC`),
   })
 );
 
@@ -226,3 +369,17 @@ export type EngagementQueue = typeof engagementQueue.$inferSelect;
 export type NewEngagementQueue = typeof engagementQueue.$inferInsert;
 export type LlmDraft = typeof llmDrafts.$inferSelect;
 export type NewLlmDraft = typeof llmDrafts.$inferInsert;
+export type EngagementPolicy = typeof engagementPolicies.$inferSelect;
+export type NewEngagementPolicy = typeof engagementPolicies.$inferInsert;
+export type EngagementPolicySnapshot = typeof engagementPolicySnapshots.$inferSelect;
+export type NewEngagementPolicySnapshot = typeof engagementPolicySnapshots.$inferInsert;
+export type PostTriage = typeof postTriage.$inferSelect;
+export type NewPostTriage = typeof postTriage.$inferInsert;
+export type DeepScrapeTask = typeof deepScrapeTasks.$inferSelect;
+export type NewDeepScrapeTask = typeof deepScrapeTasks.$inferInsert;
+export type DraftFeedbackSignal = typeof draftFeedbackSignals.$inferSelect;
+export type NewDraftFeedbackSignal = typeof draftFeedbackSignals.$inferInsert;
+export type CronJob = typeof cronJobs.$inferSelect;
+export type NewCronJob = typeof cronJobs.$inferInsert;
+export type CronJobRun = typeof cronJobRuns.$inferSelect;
+export type NewCronJobRun = typeof cronJobRuns.$inferInsert;

@@ -164,6 +164,7 @@ export class AccountScrapeRunner {
       const commentOptions: CollectCommentOptions = {
         maxComments: env.SCRAPER_MAX_COMMENTS_PER_THREAD,
       };
+      let commentMetricsTimeoutStreak = 0;
 
       for (const post of uniquePosts.slice(0, 10)) {
         try {
@@ -224,6 +225,28 @@ export class AccountScrapeRunner {
 
             if (commentRecord) {
               result.snapshotsWritten++;
+
+              type CommentMetricSnapshot = { likesCount: number | null; repliesCount: number | null; repostsCount: number | null; viewsCount: number | null };
+              let commentMetrics: CommentMetricSnapshot = { likesCount: null, repliesCount: null, repostsCount: null, viewsCount: null };
+              if (comment.commentUrl && commentMetricsTimeoutStreak < 3) {
+                try {
+                  commentMetrics = await this.adapter.extractMetrics(page, "comment", comment.commentUrl);
+                  commentMetricsTimeoutStreak = 0;
+                } catch (error: any) {
+                  if (error?.name === "TimeoutError") {
+                    commentMetricsTimeoutStreak++;
+                  }
+                  logger.debug({ error, commentUrl: comment.commentUrl, commentMetricsTimeoutStreak }, "Comment metrics extraction failed");
+                }
+              }
+
+              await metricsRepo.create({
+                entityType: "comment",
+                entityId: commentRecord.id,
+                ...commentMetrics,
+                capturedAt: Math.floor(Date.now() / 1000),
+                runAccountId: this.runAccountId,
+              });
 
               await snapshotsRepo.create({
                 entityType: "comment",

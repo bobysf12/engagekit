@@ -8,6 +8,13 @@
       "when": 1770832866538,
       "tag": "0000_peaceful_big_bertha",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1770954602377,
+      "tag": "0001_wet_bastion",
+      "breakpoints": true
     }
   ]
 }
