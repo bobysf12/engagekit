@@ -31,7 +31,9 @@ Engagekit is a social media engagement pipeline tool with these stages:
 - `src/orchestration/` - scrape coordinator, pipeline coordinator
 - `src/orchestration/stages/` - individual pipeline stages
 - `src/platforms/` - platform adapters (`threads`, `x`)
-- `src/services/` - domain services (policy snapshots, etc.)
+- `src/services/` - domain services (policy snapshots, delete service, etc.)
+- `src/server/` - Express API server and routes
+- `src/server/routes/` - API route modules
 - `tests/unit/` - unit tests
 - `tests/integration/` - integration tests
 - `data/` - local DB and runtime artifacts (mostly gitignored)
@@ -151,6 +153,62 @@ bun run cli cron:delete --id <id>
 bun run cli cron:history --id <id>
 ```
 
+## API Server
+
+Start the API server:
+```bash
+bun run api
+```
+
+The API runs on `http://127.0.0.1:3000` by default. Enable it with `API_ENABLED=true` in `.env`.
+
+### Endpoints
+
+#### Health
+- `GET /health` - Server health check
+
+#### Runs
+- `GET /api/runs` - List recent runs (query: `limit`)
+- `GET /api/runs/:id` - Get run with accounts
+- `DELETE /api/runs/:id` - Delete run with cascade
+- `GET /api/runs/:id/accounts` - List run accounts
+- `DELETE /api/runs/accounts/:runAccountId` - Delete run account with cascade
+
+#### Posts
+- `GET /api/posts` - List posts (query: `limit`, `offset`, `platform`, `sourceAccountId`)
+- `GET /api/posts/:id` - Get post with comments
+- `DELETE /api/posts/:id` - Delete post with cascade
+- `GET /api/posts/:id/comments` - Get post comments
+
+#### Triage
+- `GET /api/triage` - List triage (query: `limit`, `runAccountId`, `minScore`, `label`, `selectedOnly`)
+- `GET /api/triage/:id` - Get triage record
+- `GET /api/triage/run-account/:runAccountId` - List triage for run account
+- `GET /api/triage/run-account/:runAccountId/top20` - List top 20 posts
+- `GET /api/triage/run-account/:runAccountId/selected` - List posts selected for deep scrape
+
+#### Drafts
+- `GET /api/drafts` - List drafts (query: `runAccountId`, `postId`)
+- `GET /api/drafts/:id` - Get draft
+- `POST /api/drafts/:id/select` - Select draft (body: `selectedBy`, `metadata`)
+- `POST /api/drafts/:id/reject` - Reject draft
+- `GET /api/drafts/post/:postId/feedback` - Get feedback for post
+
+#### Policies
+- `GET /api/policies/account/:accountId` - Get active policy for account
+- `PUT /api/policies/account/:accountId` - Update policy (body: `name`, `topics`, `goals`, `avoidList`, `toneIdentity`, `preferredLanguages`)
+- `DELETE /api/policies/account/:accountId` - Deactivate policy
+
+#### Cron Jobs
+- `GET /api/cron` - List cron jobs (query: `accountId`)
+- `GET /api/cron/:id` - Get cron job
+- `POST /api/cron` - Create cron job (body: `accountId`, `name`, `cronExpr`, `timezone`, `pipelineConfig`)
+- `PUT /api/cron/:id` - Update cron job
+- `POST /api/cron/:id/enable` - Enable cron job
+- `POST /api/cron/:id/disable` - Disable cron job
+- `DELETE /api/cron/:id` - Delete cron job
+- `GET /api/cron/:id/history` - Get job run history (query: `limit`)
+
 ## Code Style Guidelines
 These are inferred from existing code and config.
 
@@ -235,8 +293,43 @@ These are inferred from existing code and config.
 - [x] Phase 2: LLM Core (OpenRouter) + Policy Snapshot
 - [x] Phase 3: Pipeline Orchestration Stages
 - [x] Phase 4: CLI Extensions for Operability
-- [ ] Phase 5: Express API
-- [ ] Phase 6: React/Vite + shadcn Dashboard
+- [x] Phase 5: Express API
+- [x] Phase 6: React/Vite + shadcn Dashboard
+
+## Web Dashboard
+
+The web dashboard is a React/Vite + Tailwind v4 application located in `web/`.
+
+### Start the dashboard
+
+```bash
+bun run web:dev
+```
+
+The dashboard runs on `http://localhost:5173` by default and proxies API requests to the backend at `http://127.0.0.1:3000`.
+
+### Build for production
+
+```bash
+bun run web:build
+```
+
+### Pages
+
+- **Dashboard** - Overview with health status, run counts, post counts, and active cron jobs
+- **Runs** - List of scrape runs with detail drilldown, cascade delete
+- **Posts** - Filterable table of scraped posts with platform/author search, external link, delete
+- **Drafts** - Review workspace for reply drafts, select/reject with optional feedback
+- **Cron Jobs** - Manage scheduled jobs, enable/disable, view run history
+- **Policy** - Engagement policy editor per account (topics, goals, avoid list, tone, languages)
+
+### Key Files
+
+- `web/src/App.tsx` - Router and QueryClient setup
+- `web/src/components/Layout.tsx` - Navigation layout
+- `web/src/components/ui/` - shadcn-style UI components
+- `web/src/pages/` - Page components
+- `web/src/api/` - API client and types
 
 ## Cursor/Copilot Rule Files
 Checked locations:
