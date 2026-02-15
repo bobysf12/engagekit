@@ -1,8 +1,60 @@
 import { Router } from "express";
 import { draftFeedbackRepo } from "../../db/repositories/draft-feedback.repo";
 import { logger } from "../../core/logger";
+import { runsRepo } from "../../db/repositories/runs.repo";
+import { policySnapshotService } from "../../services/policy-snapshot.service";
+import { draftGenerationStage } from "../../orchestration/stages/draft-generation-stage";
+import { env } from "../../core/config";
 
 export const draftsRoutes = Router();
+
+// IMPORTANT: Static/specific routes must be defined BEFORE dynamic routes like /:id
+// to prevent Express from matching the dynamic route first.
+
+draftsRoutes.post("/run-account/:runAccountId/generate", async (req, res, next) => {
+  try {
+    const runAccountId = parseInt(req.params.runAccountId, 10);
+    if (isNaN(runAccountId)) {
+      res.status(400).json({ error: "Invalid run account id" });
+      return;
+    }
+
+    if (!env.DRAFTS_ENABLED) {
+      res.status(400).json({ error: "Draft generation is disabled by configuration" });
+      return;
+    }
+
+    const runAccount = await runsRepo.findRunAccountById(runAccountId);
+    if (!runAccount) {
+      res.status(404).json({ error: "Run account not found" });
+      return;
+    }
+
+    const { policyJson } = await policySnapshotService.createSnapshotForRunAccount(
+      runAccount.id,
+      runAccount.accountId
+    );
+
+    const result = await draftGenerationStage.run({
+      runAccountId: runAccount.id,
+      accountId: runAccount.accountId,
+      policy: policyJson,
+    });
+
+    logger.info(
+      {
+        runAccountId: runAccount.id,
+        accountId: runAccount.accountId,
+        draftsGenerated: result.draftsGenerated,
+      },
+      "Draft generation triggered via API"
+    );
+
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+});
 
 draftsRoutes.get("/", async (req, res, next) => {
   try {
@@ -35,6 +87,31 @@ draftsRoutes.get("/", async (req, res, next) => {
     next(err);
   }
 });
+
+// Static routes with multiple path segments MUST come before /:id
+// to prevent /post from being interpreted as an :id value
+
+draftsRoutes.get("/post/:postId/feedback", async (req, res, next) => {
+  try {
+    const postId = parseInt(req.params.postId);
+    if (isNaN(postId)) {
+      res.status(400).json({ error: "Invalid post id" });
+      return;
+    }
+
+    const feedback = await draftFeedbackRepo.findSignalByPostId(postId);
+    if (!feedback) {
+      res.status(404).json({ error: "No feedback found for post" });
+      return;
+    }
+
+    res.json(feedback);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Dynamic routes /:id/* must be defined LAST to avoid shadowing static routes
 
 draftsRoutes.get("/:id", async (req, res, next) => {
   try {
@@ -125,21 +202,28 @@ draftsRoutes.post("/:id/reject", async (req, res, next) => {
   }
 });
 
-draftsRoutes.get("/post/:postId/feedback", async (req, res, next) => {
+draftsRoutes.post("/:id/undismiss", async (req, res, next) => {
   try {
-    const postId = parseInt(req.params.postId);
-    if (isNaN(postId)) {
-      res.status(400).json({ error: "Invalid post id" });
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) {
+      res.status(400).json({ error: "Invalid draft id" });
       return;
     }
 
-    const feedback = await draftFeedbackRepo.findSignalByPostId(postId);
-    if (!feedback) {
-      res.status(404).json({ error: "No feedback found for post" });
+    const draft = await draftFeedbackRepo.findDraftById(id);
+    if (!draft) {
+      res.status(404).json({ error: "Draft not found" });
       return;
     }
 
-    res.json(feedback);
+    if (draft.status !== "rejected") {
+      res.status(400).json({ error: "Can only undismiss rejected drafts" });
+      return;
+    }
+
+    const updated = await draftFeedbackRepo.undismissDraft(id);
+    logger.info({ draftId: id }, "Draft undismissed via API");
+    res.json(updated);
   } catch (err) {
     next(err);
   }

@@ -3,7 +3,6 @@ import {
   LayoutDashboard,
   RefreshCw,
   FileText,
-  MessageSquare,
   Clock,
   Settings,
 } from "lucide-react";
@@ -12,8 +11,7 @@ import { cn } from "@/lib/utils";
 const navItems = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard },
   { to: "/runs", label: "Runs", icon: RefreshCw },
-  { to: "/posts", label: "Posts", icon: FileText },
-  { to: "/drafts", label: "Drafts", icon: MessageSquare },
+  { to: "/posts", label: "Review", icon: FileText },
   { to: "/cron", label: "Cron Jobs", icon: Clock },
   { to: "/policy", label: "Policy", icon: Settings },
 ];

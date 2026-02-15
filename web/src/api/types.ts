@@ -28,6 +28,37 @@ export interface RunWithAccounts extends Run {
   accounts: RunAccount[];
 }
 
+export interface RunTriggerRequest {
+  accountId: number;
+  collectHome?: boolean;
+  collectProfiles?: boolean;
+  profileHandles?: string[];
+  searchQueries?: string[];
+  runPipeline?: boolean;
+  generateDrafts?: boolean;
+}
+
+export interface RunTriggerPipelineResult {
+  runAccountId: number;
+  triaged: number;
+  selected: number;
+  draftsGenerated: number;
+  errors: number;
+}
+
+export interface RunTriggerResponse {
+  runId: number;
+  status: string;
+  scrape: {
+    accountsProcessed: number;
+    accountsSucceeded: number;
+    accountsFailed: number;
+    postsFound: number;
+    commentsFound: number;
+  };
+  pipeline: RunTriggerPipelineResult[];
+}
+
 export interface Post {
   id: number;
   platformPostId: string | null;
@@ -102,6 +133,18 @@ export interface Draft {
   selectedBy: string | null;
   reviewedAt: number | null;
   createdAt: number;
+}
+
+export interface DraftGenerationResult {
+  totalPosts: number;
+  draftsGenerated: number;
+  draftsPerPost: number;
+  failedPosts: number;
+  errors: Array<{ postId: number; error: string }>;
+}
+
+export interface ReviewRow extends Triage {
+  drafts: Draft[];
 }
 
 export interface Policy {

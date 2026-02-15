@@ -10,11 +10,27 @@ async function fetchJSON<T>(url: string, options?: RequestInit): Promise<T> {
   });
 
   if (!res.ok) {
-    const error = await res.json().catch(() => ({ error: "Unknown error" }));
-    throw new Error(error.error || `HTTP ${res.status}`);
+    const contentType = res.headers.get("content-type") || "";
+    if (contentType.includes("application/json")) {
+      const error = await res.json().catch(() => ({ error: "Unknown error" }));
+      throw new Error(error.error || `HTTP ${res.status} ${res.statusText}`);
+    }
+
+    const text = await res.text().catch(() => "");
+    throw new Error(text || `HTTP ${res.status} ${res.statusText}`);
   }
 
-  return res.json();
+  if (res.status === 204) {
+    return undefined as T;
+  }
+
+  const contentType = res.headers.get("content-type") || "";
+  if (contentType.includes("application/json")) {
+    return res.json();
+  }
+
+  const text = await res.text();
+  return text as T;
 }
 
 export const api = {
@@ -29,6 +45,11 @@ export const api = {
       fetchJSON<RunAccount[]>(`/api/runs/${id}/accounts`),
     deleteAccount: (runAccountId: number) =>
       fetchJSON<void>(`/api/runs/accounts/${runAccountId}`, { method: "DELETE" }),
+    trigger: (data: RunTriggerRequest) =>
+      fetchJSON<RunTriggerResponse>("/api/runs/trigger", {
+        method: "POST",
+        body: JSON.stringify(data),
+      }),
   },
 
   posts: {
@@ -75,6 +96,13 @@ export const api = {
       fetchJSON<Triage[]>(`/api/triage/run-account/${runAccountId}/top20`),
     selected: (runAccountId: number) =>
       fetchJSON<Triage[]>(`/api/triage/run-account/${runAccountId}/selected`),
+    review: (runAccountId: number, params?: { includeDismissed?: boolean; dismissedOnly?: boolean }) => {
+      const sp = new URLSearchParams();
+      if (params?.includeDismissed === false) sp.set("includeDismissed", "false");
+      if (params?.dismissedOnly) sp.set("dismissedOnly", "true");
+      const query = sp.toString();
+      return fetchJSON<ReviewRow[]>(`/api/triage/run-account/${runAccountId}/review${query ? `?${query}` : ""}`);
+    },
   },
 
   drafts: {
@@ -93,6 +121,12 @@ export const api = {
       }),
     reject: (id: number) =>
       fetchJSON<Draft>(`/api/drafts/${id}/reject`, { method: "POST" }),
+    undismiss: (id: number) =>
+      fetchJSON<Draft>(`/api/drafts/${id}/undismiss`, { method: "POST" }),
+    generate: (runAccountId: number) =>
+      fetchJSON<DraftGenerationResult>(`/api/drafts/run-account/${runAccountId}/generate`, {
+        method: "POST",
+      }),
     feedback: (postId: number) =>
       fetchJSON<unknown[]>(`/api/drafts/post/${postId}/feedback`),
   },
@@ -164,11 +198,15 @@ import type {
   Run,
   RunAccount,
   RunWithAccounts,
+  RunTriggerRequest,
+  RunTriggerResponse,
   Post,
   PostWithComments,
   Comment,
   Triage,
   Draft,
+  DraftGenerationResult,
+  ReviewRow,
   Policy,
   CronJob,
   CronJobRun,
@@ -178,11 +216,15 @@ export type {
   Run,
   RunAccount,
   RunWithAccounts,
+  RunTriggerRequest,
+  RunTriggerResponse,
   Post,
   PostWithComments,
   Comment,
   Triage,
   Draft,
+  DraftGenerationResult,
+  ReviewRow,
   Policy,
   CronJob,
   CronJobRun,

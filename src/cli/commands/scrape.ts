@@ -17,12 +17,14 @@ export const commands = (program: Command) => {
     .option("--no-own-threads", "Skip own thread collection")
     .option("--search <queries...>", "Search queries (space-separated)")
     .option("--no-pipeline", "Skip engagement pipeline after scrape")
+    .option("--with-drafts", "Generate reply drafts (requires --pipeline and DRAFTS_ENABLED)")
     .action(async (options) => {
       logger.info("Starting daily scrape");
 
       const collectHome = (options.home ?? true) && (options.notifications ?? true);
       const collectProfiles = (options.profiles ?? true) && (options.ownThreads ?? true);
       const runPipeline = options.pipeline !== false;
+      const generateDrafts = options.withDrafts === true;
 
       const result = await scrapeCoordinator.run({
         platform: options.platform,
@@ -51,7 +53,7 @@ export const commands = (program: Command) => {
       }
 
       if (runPipeline && (env.TRIAGE_ENABLED || env.DEEP_SCRAPE_ENABLED || env.DRAFTS_ENABLED)) {
-        await runPipelineForScrapeRun(result.runId);
+        await runPipelineForScrapeRun(result.runId, generateDrafts);
       }
 
       process.exit(result.status === "failed" ? 1 : 0);
@@ -67,12 +69,14 @@ export const commands = (program: Command) => {
     .option("--no-own-threads", "Skip own thread collection")
     .option("--search <queries...>", "Search queries (space-separated)")
     .option("--no-pipeline", "Skip engagement pipeline after scrape")
+    .option("--with-drafts", "Generate reply drafts (requires --pipeline and DRAFTS_ENABLED)")
     .action(async (options) => {
       const accountId = parseInt(options.account, 10);
 
       const collectHome = (options.home ?? true) && (options.notifications ?? true);
       const collectProfiles = (options.profiles ?? true) && (options.ownThreads ?? true);
       const runPipeline = options.pipeline !== false;
+      const generateDrafts = options.withDrafts === true;
 
       logger.info({ accountId }, "Starting account scrape");
 
@@ -105,7 +109,7 @@ export const commands = (program: Command) => {
       }, "Account scrape completed");
 
       if (runPipeline && (env.TRIAGE_ENABLED || env.DEEP_SCRAPE_ENABLED || env.DRAFTS_ENABLED)) {
-        await runPipelineForScrapeRun(result.runId);
+        await runPipelineForScrapeRun(result.runId, generateDrafts);
       }
 
       process.exit(result.status === "failed" ? 1 : 0);
@@ -114,8 +118,10 @@ export const commands = (program: Command) => {
   program
     .command("pipeline:run")
     .requiredOption("--run-account <id>", "Run Account ID")
+    .option("--with-drafts", "Generate reply drafts (requires DRAFTS_ENABLED)")
     .action(async (options) => {
       const runAccountId = parseInt(options.runAccount, 10);
+      const generateDrafts = options.withDrafts === true;
 
       const runAccount = await runsRepo.findRunAccountById(runAccountId);
       if (!runAccount) {
@@ -126,6 +132,7 @@ export const commands = (program: Command) => {
       const result = await engagementPipelineCoordinator.run({
         runAccountId,
         accountId: runAccount.accountId,
+        generateDrafts,
       });
 
       console.log("Pipeline completed:");
@@ -145,7 +152,7 @@ export const commands = (program: Command) => {
     });
 };
 
-async function runPipelineForScrapeRun(runId: number) {
+async function runPipelineForScrapeRun(runId: number, generateDrafts: boolean) {
   const runAccounts = await runsRepo.findByRunId(runId);
 
   for (const runAccount of runAccounts) {
@@ -157,6 +164,7 @@ async function runPipelineForScrapeRun(runId: number) {
       const pipelineResult = await engagementPipelineCoordinator.run({
         runAccountId: runAccount.id,
         accountId: runAccount.accountId,
+        generateDrafts,
       });
 
       logger.info(

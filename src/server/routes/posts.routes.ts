@@ -9,6 +9,9 @@ import { logger } from "../../core/logger";
 
 export const postsRoutes = Router();
 
+// IMPORTANT: Static/specific routes must be defined BEFORE dynamic routes like /:id
+// to prevent Express from matching the dynamic route first.
+
 postsRoutes.get("/", async (req, res, next) => {
   try {
     const limit = Math.min(Math.max(parseInt(req.query.limit as string) || 50, 1), 200);
@@ -40,6 +43,32 @@ postsRoutes.get("/", async (req, res, next) => {
     next(err);
   }
 });
+
+// Nested routes like /:id/comments MUST come BEFORE /:id
+// Otherwise /123/comments matches /:id with id="123/comments"
+
+postsRoutes.get("/:id/comments", async (req, res, next) => {
+  try {
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) {
+      res.status(400).json({ error: "Invalid post id" });
+      return;
+    }
+
+    const post = await postsRepo.findById(id);
+    if (!post) {
+      res.status(404).json({ error: "Post not found" });
+      return;
+    }
+
+    const comments = await commentsRepo.findByParentPostId(id);
+    res.json(comments);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Dynamic routes /:id must be defined LAST
 
 postsRoutes.get("/:id", async (req, res, next) => {
   try {
@@ -79,27 +108,6 @@ postsRoutes.delete("/:id", async (req, res, next) => {
     await deleteService.deletePost(id);
     logger.info({ postId: id }, "Post deleted via API");
     res.json({ success: true, id });
-  } catch (err) {
-    next(err);
-  }
-});
-
-postsRoutes.get("/:id/comments", async (req, res, next) => {
-  try {
-    const id = parseInt(req.params.id);
-    if (isNaN(id)) {
-      res.status(400).json({ error: "Invalid post id" });
-      return;
-    }
-
-    const post = await postsRepo.findById(id);
-    if (!post) {
-      res.status(404).json({ error: "Post not found" });
-      return;
-    }
-
-    const comments = await commentsRepo.findByParentPostId(id);
-    res.json(comments);
   } catch (err) {
     next(err);
   }

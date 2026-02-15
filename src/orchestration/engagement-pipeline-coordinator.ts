@@ -9,6 +9,7 @@ import { draftGenerationStage } from "./stages/draft-generation-stage";
 export interface EngagementPipelineInput {
   runAccountId: number;
   accountId: number;
+  generateDrafts?: boolean;
 }
 
 export interface EngagementPipelineResult {
@@ -93,7 +94,7 @@ export class EngagementPipelineCoordinator {
         }
       }
 
-      if (env.DRAFTS_ENABLED && selectionResult.selectedForDeepScrape > 0) {
+      if (env.DRAFTS_ENABLED && input.generateDrafts === true && selectionResult.selectedForDeepScrape > 0) {
         const draftsResult = await draftGenerationStage.run({
           runAccountId: input.runAccountId,
           accountId: input.accountId,

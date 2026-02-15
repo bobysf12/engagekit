@@ -103,6 +103,18 @@ export class DraftFeedbackRepository {
       .returning();
     return result ?? null;
   }
+
+  async undismissDraft(id: number): Promise<LlmDraft | null> {
+    const [result] = await this.db
+      .update(llmDrafts)
+      .set({
+        status: "generated",
+        reviewedAt: null,
+      })
+      .where(eq(llmDrafts.id, id))
+      .returning();
+    return result ?? null;
+  }
 }
 
 export const draftFeedbackRepo = new DraftFeedbackRepository();
