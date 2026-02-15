@@ -13,6 +13,7 @@ import { computeContentHash, computeSnapshotHash } from "../../core/hash";
 import { accountsRepo } from "../../db/repositories/accounts.repo";
 import { ThreadsAdapter } from "../../platforms/threads";
 import { XAdapter } from "../../platforms/x";
+import { getRequiredStorageState } from "../../services/playwright-session-state";
 
 export interface DeepScrapeStageInput {
   runAccountId: number;
@@ -64,13 +65,15 @@ export class DeepScrapeStage {
     let page: Page | null = null;
 
     try {
+      const storageState = getRequiredStorageState(account);
+
       browser = await chromium.launch({
         headless: env.PLAYWRIGHT_HEADLESS,
         slowMo: env.PLAYWRIGHT_SLOW_MO,
       });
 
       context = await browser.newContext({
-        storageState: account.sessionStatePath,
+        storageState: storageState as any,
       });
 
       page = await context.newPage();

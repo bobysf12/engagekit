@@ -12,6 +12,7 @@ export const accounts = sqliteTable(
       enum: ["active", "needs_initial_auth", "needs_reauth", "disabled"],
     }).notNull().default("needs_initial_auth"),
     sessionStatePath: text("session_state_path").notNull(),
+    sessionStateJson: text("session_state_json"),
     lastAuthAt: integer("last_auth_at"),
     lastAuthCheckAt: integer("last_auth_check_at"),
     lastErrorCode: text("last_error_code"),

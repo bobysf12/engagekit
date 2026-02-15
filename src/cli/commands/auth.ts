@@ -5,14 +5,17 @@ import {
   type BrowserContext,
   type Page,
 } from "playwright";
-import * as fs from "node:fs/promises";
-import * as path from "node:path";
 import { accountsRepo } from "../../db/repositories/accounts.repo";
 import { logger } from "../../core/logger";
 import { validateTransition } from "../../domain/account-state-machine";
 import { ThreadsAdapter } from "../../platforms/threads";
 import { XAdapter } from "../../platforms/x";
 import { env } from "../../core/config";
+import {
+  serializeStorageState,
+  getRequiredStorageState,
+  hasSessionState,
+} from "../../services/playwright-session-state";
 
 export const commands = (program: Command) => {
   program
@@ -50,13 +53,12 @@ export const commands = (program: Command) => {
             : new XAdapter();
         await adapter.performLogin(await context.newPage(), account.handle);
 
-        const tempPath = `${account.sessionStatePath}.tmp`;
-        await context.storageState({ path: tempPath });
-
-        await fs.rename(tempPath, account.sessionStatePath);
+        const state = await context.storageState();
+        const sessionStateJson = serializeStorageState(state);
 
         await accountsRepo.update(id, {
           status: "active",
+          sessionStateJson,
           lastAuthAt: Math.floor(Date.now() / 1000),
           lastAuthCheckAt: Math.floor(Date.now() / 1000),
         });
@@ -64,8 +66,8 @@ export const commands = (program: Command) => {
         await accountsRepo.clearAuthError(id);
 
         logger.info(
-          { accountId: id, sessionPath: account.sessionStatePath },
-          "Login successful, session saved",
+          { accountId: id, cookieCount: state.cookies?.length || 0 },
+          "Login successful, session saved to database",
         );
       } catch (error: any) {
         logger.error(error, "Login failed");
@@ -94,12 +96,20 @@ export const commands = (program: Command) => {
       let context: BrowserContext | null = null;
 
       try {
+        if (!hasSessionState(account)) {
+          logger.warn({ accountId: id }, "No session state in database");
+          await accountsRepo.setNeedsReauth(id, "SESSION_STATE_MISSING", "No session state in database");
+          return;
+        }
+
+        const storageState = getRequiredStorageState(account);
+
         browser = await chromium.launch({
           headless: true,
           slowMo: env.PLAYWRIGHT_SLOW_MO,
         });
         context = await browser.newContext({
-          storageState: account.sessionStatePath,
+          storageState: storageState as any,
         });
 
         const adapter =

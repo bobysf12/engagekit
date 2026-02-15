@@ -12,6 +12,7 @@ import { commentsRepo } from "../db/repositories/comments.repo";
 import { metricsRepo } from "../db/repositories/metrics.repo";
 import { snapshotsRepo } from "../db/repositories/snapshots.repo";
 import { env } from "../core/config";
+import { getRequiredStorageState } from "../services/playwright-session-state";
 
 export interface ScrapeResult {
   postsFound: number;
@@ -46,13 +47,15 @@ export class AccountScrapeRunner {
     };
 
     try {
+      const storageState = getRequiredStorageState(this.account);
+
       browser = await chromium.launch({
         headless: env.PLAYWRIGHT_HEADLESS,
         slowMo: env.PLAYWRIGHT_SLOW_MO,
       });
 
       context = await browser.newContext({
-        storageState: this.account.sessionStatePath,
+        storageState: storageState as any,
       });
 
       page = await context.newPage();
