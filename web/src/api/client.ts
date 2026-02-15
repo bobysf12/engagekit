@@ -191,6 +191,8 @@ export const api = {
       fetchJSON<void>(`/api/cron/${id}`, { method: "DELETE" }),
     history: (id: number, limit = 20) =>
       fetchJSON<CronJobRun[]>(`/api/cron/${id}/history?limit=${limit}`),
+    runNow: (id: number) =>
+      fetchJSON<{ success: boolean; message: string; jobId: number }>(`/api/cron/${id}/run-now`, { method: "POST" }),
   },
 };
 

@@ -190,3 +190,23 @@ export interface CronJobRun {
   endedAt: number | null;
   error: string | null;
 }
+
+export interface CronSource {
+  type: "home" | "profile" | "search";
+  value?: string;
+}
+
+export interface CronPipelineConfig {
+  sources: CronSource[];
+  maxPostsPerRun: number;
+  clearStatusPerRun: boolean;
+  generateDrafts: boolean;
+}
+
+export const DEFAULT_CRON_CONFIG: CronPipelineConfig = {
+  sources: [{ type: "home" }],
+  maxPostsPerRun: 100,
+  clearStatusPerRun: false,
+  generateDrafts: true,
+};
+

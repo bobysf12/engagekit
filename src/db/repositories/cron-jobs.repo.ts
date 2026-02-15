@@ -1,4 +1,4 @@
-import { eq, and, desc } from "drizzle-orm";
+import { eq, and, desc, lte } from "drizzle-orm";
 import type { CronJob, NewCronJob, CronJobRun, NewCronJobRun } from "../schema";
 import { cronJobs, cronJobRuns } from "../schema";
 import { getDb } from "../client";
@@ -44,7 +44,7 @@ export class CronJobsRepository {
     return this.db
       .select()
       .from(cronJobs)
-      .where(and(eq(cronJobs.enabled, 1), eq(cronJobs.nextRunAt, beforeTimestamp)));
+      .where(and(eq(cronJobs.enabled, 1), lte(cronJobs.nextRunAt, beforeTimestamp)));
   }
 
   async updateJob(id: number, data: Partial<NewCronJob>): Promise<CronJob | null> {
@@ -128,6 +128,15 @@ export class CronJobsRepository {
       .where(eq(cronJobRuns.id, id))
       .limit(1);
     return result ?? null;
+  }
+
+  async hasActiveRun(cronJobId: number): Promise<boolean> {
+    const [result] = await this.db
+      .select()
+      .from(cronJobRuns)
+      .where(and(eq(cronJobRuns.cronJobId, cronJobId), eq(cronJobRuns.status, "running")))
+      .limit(1);
+    return result !== undefined;
   }
 
   async listJobRunsByCronJob(cronJobId: number, limit: number = 20): Promise<CronJobRun[]> {

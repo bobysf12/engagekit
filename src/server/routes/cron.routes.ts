@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { cronJobsRepo } from "../../db/repositories/cron-jobs.repo";
+import { cronJobExecutor } from "../../orchestration/scheduler/cron-job-executor";
 import { logger } from "../../core/logger";
 
 export const cronRoutes = Router();
@@ -169,6 +170,34 @@ cronRoutes.post("/:id/disable", async (req, res, next) => {
     const updated = await cronJobsRepo.disableJob(id);
     logger.info({ jobId: id }, "Cron job disabled via API");
     res.json(updated);
+  } catch (err) {
+    next(err);
+  }
+});
+
+cronRoutes.post("/:id/run-now", async (req, res, next) => {
+  try {
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) {
+      res.status(400).json({ error: "Invalid cron job id" });
+      return;
+    }
+
+    const job = await cronJobsRepo.findJobById(id);
+    if (!job) {
+      res.status(404).json({ error: "Cron job not found" });
+      return;
+    }
+
+    logger.info({ jobId: id }, "Manual run triggered via API");
+    
+    cronJobExecutor.executeManual(id).then((result) => {
+      logger.info({ jobId: id, result }, "Manual run completed");
+    }).catch((error) => {
+      logger.error({ jobId: id, error }, "Manual run failed");
+    });
+
+    res.json({ success: true, message: "Run triggered", jobId: id });
   } catch (err) {
     next(err);
   }

@@ -7,6 +7,7 @@ import { triageRoutes } from "./routes/triage.routes";
 import { draftsRoutes } from "./routes/drafts.routes";
 import { policiesRoutes } from "./routes/policies.routes";
 import { cronRoutes } from "./routes/cron.routes";
+import { cronScheduler } from "../orchestration/scheduler";
 
 const app = express();
 
@@ -40,6 +41,8 @@ export function startServer() {
     logger.warn("API_ENABLED is false, not starting server");
     return;
   }
+
+  cronScheduler.start();
 
   app.listen(env.API_PORT, env.API_HOST, () => {
     logger.info(`API server listening on http://${env.API_HOST}:${env.API_PORT}`);
