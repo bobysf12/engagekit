@@ -46,7 +46,7 @@ import {
   ChevronRight,
 } from "lucide-react";
 
-type Preset = "all" | "needs-triage" | "high-priority" | "not-engaged" | "today";
+type Preset = "all" | "needs-triage" | "high-priority" | "not-engaged" | "engaged" | "today";
 type SavedView = {
   id: string;
   name: string;
@@ -105,10 +105,11 @@ function isToday(ts: number | null): boolean {
 }
 
 const PRESETS: { value: Preset; label: string }[] = [
-  { value: "all", label: "All" },
+  { value: "all", label: "Queue" },
   { value: "needs-triage", label: "Needs Triage" },
   { value: "high-priority", label: "High Priority" },
   { value: "not-engaged", label: "Not Engaged" },
+  { value: "engaged", label: "Engaged" },
   { value: "today", label: "Today" },
 ];
 
@@ -371,9 +372,11 @@ export function PostsListPage() {
 
     return posts.filter((post: Post) => {
       if (skippedIds.has(post.id)) return false;
+      if (preset === "all" && post.engaged === 1) return false;
       if (preset === "needs-triage" && post.triageScore !== null) return false;
       if (preset === "high-priority" && (post.triageScore === null || post.triageScore < 75)) return false;
       if (preset === "not-engaged" && post.engaged === 1) return false;
+      if (preset === "engaged" && post.engaged !== 1) return false;
       if (preset === "today" && !isToday(post.firstSeenAt)) return false;
 
       if (!search) return true;
@@ -385,13 +388,14 @@ export function PostsListPage() {
   }, [posts, preset, search, skippedIds]);
 
   const presetCounts = useMemo(() => {
-    if (!posts) return { all: 0, "needs-triage": 0, "high-priority": 0, "not-engaged": 0, today: 0 };
+    if (!posts) return { all: 0, "needs-triage": 0, "high-priority": 0, "not-engaged": 0, engaged: 0, today: 0 };
     const visible = posts.filter((p: Post) => !skippedIds.has(p.id));
     return {
-      all: visible.length,
+      all: visible.filter((p: Post) => p.engaged !== 1).length,
       "needs-triage": visible.filter((p: Post) => p.triageScore === null).length,
       "high-priority": visible.filter((p: Post) => p.triageScore !== null && p.triageScore >= 75).length,
       "not-engaged": visible.filter((p: Post) => p.engaged !== 1).length,
+      engaged: visible.filter((p: Post) => p.engaged === 1).length,
       today: visible.filter((p: Post) => isToday(p.firstSeenAt)).length,
     };
   }, [posts, skippedIds]);

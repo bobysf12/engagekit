@@ -18,32 +18,32 @@ const navItems = [
 
 export function Layout() {
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen bg-background overflow-x-hidden">
       <header className="sticky top-0 z-40 border-b bg-background">
-        <div className="container flex h-14 items-center">
-          <span className="font-semibold text-lg mr-8">Engagekit</span>
-          <nav className="flex items-center space-x-1">
+        <div className="container h-14 flex items-center gap-3 min-w-0">
+          <span className="font-semibold text-base sm:text-lg shrink-0">Engagekit</span>
+          <nav className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto scrollbar-hide">
             {navItems.map((item) => (
               <NavLink
                 key={item.to}
                 to={item.to}
                 className={({ isActive }) =>
                   cn(
-                    "flex items-center px-3 py-2 text-sm font-medium rounded-md transition-colors",
+                    "flex shrink-0 items-center px-2.5 sm:px-3 py-2 text-xs sm:text-sm font-medium rounded-md transition-colors whitespace-nowrap",
                     isActive
                       ? "bg-primary text-primary-foreground"
                       : "text-muted-foreground hover:text-foreground hover:bg-muted"
                   )
                 }
               >
-                <item.icon className="h-4 w-4 mr-2" />
-                {item.label}
+                <item.icon className="h-4 w-4 sm:mr-2" />
+                <span className="hidden sm:inline">{item.label}</span>
               </NavLink>
             ))}
           </nav>
         </div>
       </header>
-      <main className="container py-6">
+      <main className="container py-6 min-w-0">
         <Outlet />
       </main>
     </div>
