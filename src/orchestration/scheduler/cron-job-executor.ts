@@ -18,6 +18,18 @@ export interface ExecuteResult {
 }
 
 export class CronJobExecutor {
+  private accountLocks = new Set<number>();
+
+  private acquireAccountLock(accountId: number): boolean {
+    if (this.accountLocks.has(accountId)) return false;
+    this.accountLocks.add(accountId);
+    return true;
+  }
+
+  private releaseAccountLock(accountId: number): void {
+    this.accountLocks.delete(accountId);
+  }
+
   async executeJob(cronJob: CronJob): Promise<ExecuteResult> {
     const logCtx = { cronJobId: cronJob.id, accountId: cronJob.accountId };
     logger.info(logCtx, "Starting cron job execution");
@@ -29,64 +41,74 @@ export class CronJobExecutor {
       return { success: false, error };
     }
 
-    const config = parsePipelineConfig(cronJob.pipelineConfigJson);
-    if (!config) {
-      const error = "Invalid pipeline config";
-      await cronJobsRepo.markJobFailed(cronJob.id, error);
+    if (!this.acquireAccountLock(account.id)) {
+      const error = `Account ${account.id} already has an active cron execution`;
+      logger.warn({ ...logCtx, error }, "Skipping cron execution due to account lock");
       return { success: false, error };
     }
 
-    const nextRunAt = this.calculateNextRun(cronJob.cronExpr, cronJob.timezone);
-    const jobRun = await cronJobsRepo.createJobRun({
-      cronJobId: cronJob.id,
-      status: "running",
-      startedAt: Math.floor(Date.now() / 1000),
-    });
-
-    await cronJobsRepo.markJobRun(cronJob.id, jobRun.id, nextRunAt);
-
     try {
-      const { collectHome, profileHandles, searchQueries } = getSourcesFromConfig(config);
+      const config = parsePipelineConfig(cronJob.pipelineConfigJson);
+      if (!config) {
+        const error = "Invalid pipeline config";
+        await cronJobsRepo.markJobFailed(cronJob.id, error);
+        return { success: false, error };
+      }
 
-      const scrapeResult = await scrapeCoordinator.run({
-        platform: account.platform as any,
-        trigger: "daily",
-        accountIds: [account.id],
-        collectHome,
-        collectProfiles: profileHandles.length > 0,
-        profileHandles,
-        searchQueries,
+      const nextRunAt = this.calculateNextRun(cronJob.cronExpr, cronJob.timezone);
+      const jobRun = await cronJobsRepo.createJobRun({
+        cronJobId: cronJob.id,
+        status: "running",
+        startedAt: Math.floor(Date.now() / 1000),
       });
 
-      if (!scrapeResult || scrapeResult.accountsSucceeded === 0) {
-        const error = scrapeResult?.errors?.[0]?.error || "Scrape failed";
-        await cronJobsRepo.markJobRunFailed(jobRun.id, error);
-        await cronJobsRepo.markJobFailed(cronJob.id, error);
-        return { success: false, scrapeRunId: scrapeResult?.runId, error };
-      }
+      await cronJobsRepo.markJobRun(cronJob.id, jobRun.id, nextRunAt);
 
-      const runAccounts = await this.getRunAccountForScrape(scrapeResult.runId, account.id);
-      if (runAccounts.length > 0) {
-        for (const runAccount of runAccounts) {
-          await engagementPipelineCoordinator.run({
-            runAccountId: runAccount.id,
-            accountId: account.id,
-            generateDrafts: config.generateDrafts,
-          });
+      try {
+        const { collectHome, profileHandles, searchQueries } = getSourcesFromConfig(config);
+
+        const scrapeResult = await scrapeCoordinator.run({
+          platform: account.platform as any,
+          trigger: "daily",
+          accountIds: [account.id],
+          collectHome,
+          collectProfiles: profileHandles.length > 0,
+          profileHandles,
+          searchQueries,
+        });
+
+        if (!scrapeResult || scrapeResult.accountsSucceeded === 0) {
+          const error = scrapeResult?.errors?.[0]?.error || "Scrape failed";
+          await cronJobsRepo.markJobRunFailed(jobRun.id, error);
+          await cronJobsRepo.markJobFailed(cronJob.id, error);
+          return { success: false, scrapeRunId: scrapeResult?.runId, error };
         }
+
+        const runAccounts = await this.getRunAccountForScrape(scrapeResult.runId, account.id);
+        if (runAccounts.length > 0) {
+          for (const runAccount of runAccounts) {
+            await engagementPipelineCoordinator.run({
+              runAccountId: runAccount.id,
+              accountId: account.id,
+              generateDrafts: config.generateDrafts,
+            });
+          }
+        }
+
+        await cronJobsRepo.markJobRunSuccess(jobRun.id);
+        await cronJobsRepo.markJobSuccess(cronJob.id);
+
+        logger.info({ ...logCtx, scrapeRunId: scrapeResult.runId }, "Cron job completed successfully");
+        return { success: true, scrapeRunId: scrapeResult.runId };
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : "Unknown error";
+        logger.error({ ...logCtx, error: errorMessage }, "Cron job execution failed");
+        await cronJobsRepo.markJobRunFailed(jobRun.id, errorMessage);
+        await cronJobsRepo.markJobFailed(cronJob.id, errorMessage);
+        return { success: false, error: errorMessage };
       }
-
-      await cronJobsRepo.markJobRunSuccess(jobRun.id);
-      await cronJobsRepo.markJobSuccess(cronJob.id);
-
-      logger.info({ ...logCtx, scrapeRunId: scrapeResult.runId }, "Cron job completed successfully");
-      return { success: true, scrapeRunId: scrapeResult.runId };
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : "Unknown error";
-      logger.error({ ...logCtx, error: errorMessage }, "Cron job execution failed");
-      await cronJobsRepo.markJobRunFailed(jobRun.id, errorMessage);
-      await cronJobsRepo.markJobFailed(cronJob.id, errorMessage);
-      return { success: false, error: errorMessage };
+    } finally {
+      this.releaseAccountLock(account.id);
     }
   }
 
