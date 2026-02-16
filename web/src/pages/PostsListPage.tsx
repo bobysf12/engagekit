@@ -462,7 +462,7 @@ export function PostsListPage() {
       </div>
 
       <div className="flex flex-col gap-3">
-        <div className="flex items-center gap-1 -mx-4 px-4 overflow-x-auto scrollbar-hide">
+        <div className="flex w-full items-center gap-1 overflow-x-auto scrollbar-hide">
           <Filter className="h-4 w-4 text-muted-foreground shrink-0 mr-1" />
           {PRESETS.map((p) => (
             <Button
@@ -504,7 +504,7 @@ export function PostsListPage() {
         </div>
 
         {savedViews.length > 0 && (
-          <div className="flex items-center gap-2 overflow-x-auto scrollbar-hide -mx-4 px-4">
+          <div className="flex w-full items-center gap-2 overflow-x-auto scrollbar-hide">
             {savedViews.map((view) => (
               <div key={view.id} className="inline-flex items-center gap-1 rounded-md border p-1">
                 <Button variant="ghost" size="sm" className="h-7" onClick={() => applyView(view)}>
