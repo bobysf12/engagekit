@@ -391,10 +391,24 @@ export function PostsListPage() {
   const handleSkip = (post?: Post | null) => {
     const target = post ?? selectedPost;
     if (!target) return;
-    const next = new Set(skippedIds);
-    next.add(target.id);
-    persistSkipped(next);
-    if (sheetOpen) setSheetOpen(false);
+
+    const currentIndex = filteredPosts.findIndex((p) => p.id === target.id);
+    const nextSkipped = new Set(skippedIds);
+    nextSkipped.add(target.id);
+
+    const remaining = filteredPosts.filter((p) => p.id !== target.id && !nextSkipped.has(p.id));
+    const preferredNext =
+      remaining.find((p) => {
+        const idx = filteredPosts.findIndex((fp) => fp.id === p.id);
+        return currentIndex >= 0 && idx > currentIndex;
+      }) ?? remaining[remaining.length - 1] ?? null;
+
+    persistSkipped(nextSkipped);
+    setSelectedPost(preferredNext);
+
+    if (!preferredNext) {
+      setSheetOpen(false);
+    }
   };
 
   const saveCurrentView = () => {
