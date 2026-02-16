@@ -4,7 +4,8 @@ import { Layout } from "@/components/Layout";
 import { DashboardPage } from "@/pages/DashboardPage";
 import { RunsPage } from "@/pages/RunsPage";
 import { RunDetailPage } from "@/pages/RunDetailPage";
-import { PostsPage } from "@/pages/PostsPage";
+import { PostsListPage } from "@/pages/PostsListPage";
+import { PostWorkspacePage } from "@/pages/PostWorkspacePage";
 import { CronPage } from "@/pages/CronPage";
 import { PolicyPage } from "@/pages/PolicyPage";
 
@@ -26,7 +27,8 @@ function App() {
             <Route index element={<DashboardPage />} />
             <Route path="runs" element={<RunsPage />} />
             <Route path="runs/:id" element={<RunDetailPage />} />
-            <Route path="posts" element={<PostsPage />} />
+            <Route path="posts" element={<PostsListPage />} />
+            <Route path="posts/:id" element={<PostWorkspacePage />} />
             <Route path="drafts" element={<Navigate to="/posts" replace />} />
             <Route path="cron" element={<CronPage />} />
             <Route path="policy" element={<PolicyPage />} />

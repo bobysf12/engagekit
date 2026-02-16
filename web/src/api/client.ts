@@ -58,18 +58,31 @@ export const api = {
       offset?: number;
       platform?: string;
       sourceAccountId?: string;
+      engaged?: boolean;
     }) => {
       const sp = new URLSearchParams();
       if (params?.limit) sp.set("limit", String(params.limit));
       if (params?.offset) sp.set("offset", String(params.offset));
       if (params?.platform) sp.set("platform", params.platform);
       if (params?.sourceAccountId) sp.set("sourceAccountId", params.sourceAccountId);
+      if (params?.engaged !== undefined) sp.set("engaged", String(params.engaged));
       const query = sp.toString();
       return fetchJSON<Post[]>(`/api/posts${query ? `?${query}` : ""}`);
     },
     get: (id: number) => fetchJSON<PostWithComments>(`/api/posts/${id}`),
     delete: (id: number) =>
       fetchJSON<void>(`/api/posts/${id}`, { method: "DELETE" }),
+    workspace: (id: number) =>
+      fetchJSON<PostWorkspace>(`/api/posts/${id}/workspace`),
+    setEngagement: (id: number, engaged: boolean, engagedBy?: string) =>
+      fetchJSON<Post>(`/api/posts/${id}/engagement`, {
+        method: "PUT",
+        body: JSON.stringify({ engaged, engagedBy }),
+      }),
+    generateDrafts: (id: number) =>
+      fetchJSON<GenerateDraftsResult>(`/api/posts/${id}/generate-drafts`, {
+        method: "POST",
+      }),
   },
 
   triage: {
@@ -204,6 +217,8 @@ import type {
   RunTriggerResponse,
   Post,
   PostWithComments,
+  PostWorkspace,
+  GenerateDraftsResult,
   Comment,
   Triage,
   Draft,
@@ -222,6 +237,8 @@ export type {
   RunTriggerResponse,
   Post,
   PostWithComments,
+  PostWorkspace,
+  GenerateDraftsResult,
   Comment,
   Triage,
   Draft,

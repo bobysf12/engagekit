@@ -78,8 +78,12 @@ export const posts = sqliteTable(
     firstSeenAt: integer("first_seen_at").notNull(),
     lastSeenAt: integer("last_seen_at").notNull(),
     sourceAccountId: integer("source_account_id").references(() => accounts.id),
+    engaged: integer("engaged").notNull().default(0),
+    engagedAt: integer("engaged_at"),
+    engagedBy: text("engaged_by"),
   },
   (table) => ({
+    engagedIdx: index("posts_engaged_idx").on(table.engaged, sql`last_seen_at DESC`),
     platformPostIdIdx: uniqueIndex("posts_platform_post_id_idx").on(
       table.platform,
       table.platformPostId

@@ -43,6 +43,16 @@ export class PostTriageRepository {
       .limit(limit);
   }
 
+  async findLatestByPostId(postId: number): Promise<PostTriage | null> {
+    const [result] = await this.db
+      .select()
+      .from(postTriage)
+      .where(eq(postTriage.postId, postId))
+      .orderBy(desc(postTriage.createdAt))
+      .limit(1);
+    return result ?? null;
+  }
+
   async listSelectedForDeepScrape(runAccountId: number): Promise<PostTriage[]> {
     return this.db
       .select()

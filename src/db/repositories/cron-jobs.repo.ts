@@ -1,4 +1,4 @@
-import { eq, and, desc, lte } from "drizzle-orm";
+import { eq, and, desc, lte, lt, isNotNull } from "drizzle-orm";
 import type { CronJob, NewCronJob, CronJobRun, NewCronJobRun } from "../schema";
 import { cronJobs, cronJobRuns } from "../schema";
 import { getDb } from "../client";
@@ -40,11 +40,37 @@ export class CronJobsRepository {
       .where(eq(cronJobs.enabled, 1));
   }
 
+  async listAllJobs(): Promise<CronJob[]> {
+    return this.db
+      .select()
+      .from(cronJobs)
+      .orderBy(desc(cronJobs.createdAt));
+  }
+
+  async listJobsStuckRunning(timeoutSeconds: number): Promise<CronJob[]> {
+    const cutoff = Math.floor(Date.now() / 1000) - timeoutSeconds;
+    return this.db
+      .select()
+      .from(cronJobs)
+      .where(
+        and(
+          eq(cronJobs.lastStatus, "running"),
+          lt(cronJobs.lastRunAt, cutoff)
+        )
+      );
+  }
+
   async listDueJobs(beforeTimestamp: number): Promise<CronJob[]> {
     return this.db
       .select()
       .from(cronJobs)
-      .where(and(eq(cronJobs.enabled, 1), lte(cronJobs.nextRunAt, beforeTimestamp)));
+      .where(
+        and(
+          eq(cronJobs.enabled, 1),
+          isNotNull(cronJobs.nextRunAt),
+          lte(cronJobs.nextRunAt, beforeTimestamp)
+        )
+      );
   }
 
   async updateJob(id: number, data: Partial<NewCronJob>): Promise<CronJob | null> {
@@ -171,6 +197,25 @@ export class CronJobsRepository {
       .where(eq(cronJobRuns.id, id))
       .returning();
     return result ?? null;
+  }
+
+  async recoverStaleRuns(timeoutSeconds: number): Promise<number> {
+    const cutoff = Math.floor(Date.now() / 1000) - timeoutSeconds;
+    const result = await this.db
+      .update(cronJobRuns)
+      .set({
+        status: "failed",
+        endedAt: Math.floor(Date.now() / 1000),
+        error: "Run timed out - recovered on scheduler restart",
+      })
+      .where(
+        and(
+          eq(cronJobRuns.status, "running"),
+          lt(cronJobRuns.startedAt, cutoff)
+        )
+      )
+      .returning();
+    return result.length;
   }
 }
 

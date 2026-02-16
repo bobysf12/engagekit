@@ -105,6 +105,64 @@ export class PostsRepository {
       .orderBy(desc(posts.firstSeenAt))
       .limit(limit);
   }
+
+  async listPaginated(options: {
+    limit?: number;
+    offset?: number;
+    platform?: string;
+    sourceAccountId?: number;
+    engaged?: boolean;
+  }): Promise<{ posts: Post[]; total: number }> {
+    const { limit = 50, offset = 0, platform, sourceAccountId, engaged } = options;
+    
+    const conditions = [];
+    if (platform) conditions.push(eq(posts.platform, platform));
+    if (sourceAccountId) conditions.push(eq(posts.sourceAccountId, sourceAccountId));
+    if (engaged !== undefined) conditions.push(eq(posts.engaged, engaged ? 1 : 0));
+
+    const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
+
+    const postsResult = await this.db
+      .select()
+      .from(posts)
+      .where(whereClause)
+      .orderBy(desc(posts.lastSeenAt))
+      .limit(limit)
+      .offset(offset);
+
+    const countResult = await this.db
+      .select({ count: sql<number>`count(*)` })
+      .from(posts)
+      .where(whereClause);
+
+    const total = countResult[0]?.count ?? 0;
+
+    return { posts: postsResult, total };
+  }
+
+  async updateEngagement(
+    id: number,
+    engaged: boolean,
+    engagedBy?: string
+  ): Promise<Post | null> {
+    const now = Math.floor(Date.now() / 1000);
+    const [result] = await this.db
+      .update(posts)
+      .set({
+        engaged: engaged ? 1 : 0,
+        engagedAt: engaged ? now : null,
+        engagedBy: engaged ? (engagedBy ?? null) : null,
+      })
+      .where(eq(posts.id, id))
+      .returning();
+    logger.debug({ postId: id, engaged }, "Post engagement updated");
+    return result ?? null;
+  }
+
+  async delete(id: number): Promise<boolean> {
+    const result = await this.db.delete(posts).where(eq(posts.id, id)).returning();
+    return result.length > 0;
+  }
 }
 
 export const postsRepo = new PostsRepository();

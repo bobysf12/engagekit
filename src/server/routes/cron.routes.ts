@@ -1,7 +1,16 @@
 import { Router } from "express";
+import { CronExpressionParser } from "cron-parser";
 import { cronJobsRepo } from "../../db/repositories/cron-jobs.repo";
 import { cronJobExecutor } from "../../orchestration/scheduler/cron-job-executor";
 import { logger } from "../../core/logger";
+
+function calculateNextRun(cronExpr: string, timezone: string): number {
+  const interval = CronExpressionParser.parse(cronExpr, {
+    currentDate: new Date(),
+    tz: timezone,
+  });
+  return Math.floor(interval.next().getTime() / 1000);
+}
 
 export const cronRoutes = Router();
 
@@ -22,7 +31,7 @@ cronRoutes.get("/", async (req, res, next) => {
       return;
     }
 
-    const jobs = await cronJobsRepo.listEnabledJobs();
+    const jobs = await cronJobsRepo.listAllJobs();
     res.json(jobs);
   } catch (err) {
     next(err);
@@ -38,16 +47,20 @@ cronRoutes.post("/", async (req, res, next) => {
       return;
     }
 
+    const tz = timezone || "UTC";
+    const nextRunAt = calculateNextRun(cronExpr, tz);
+
     const job = await cronJobsRepo.createJob({
       accountId,
       name,
       cronExpr,
-      timezone: timezone || "UTC",
+      timezone: tz,
       enabled: 1,
       pipelineConfigJson: pipelineConfig ? JSON.stringify(pipelineConfig) : null,
+      nextRunAt,
     });
 
-    logger.info({ jobId: job.id, accountId }, "Cron job created via API");
+    logger.info({ jobId: job.id, accountId, nextRunAt }, "Cron job created via API");
     res.status(201).json(job);
   } catch (err) {
     next(err);
@@ -117,14 +130,19 @@ cronRoutes.put("/:id", async (req, res, next) => {
 
     const { name, cronExpr, timezone, pipelineConfig } = req.body;
 
+    const finalCronExpr = cronExpr ?? job.cronExpr;
+    const finalTimezone = timezone ?? job.timezone;
+    const nextRunAt = calculateNextRun(finalCronExpr, finalTimezone);
+
     const updated = await cronJobsRepo.updateJob(id, {
       name,
       cronExpr,
       timezone,
       pipelineConfigJson: pipelineConfig !== undefined ? JSON.stringify(pipelineConfig) : undefined,
+      nextRunAt,
     });
 
-    logger.info({ jobId: id }, "Cron job updated via API");
+    logger.info({ jobId: id, nextRunAt }, "Cron job updated via API");
     res.json(updated);
   } catch (err) {
     next(err);
@@ -145,8 +163,9 @@ cronRoutes.post("/:id/enable", async (req, res, next) => {
       return;
     }
 
-    const updated = await cronJobsRepo.enableJob(id);
-    logger.info({ jobId: id }, "Cron job enabled via API");
+    const nextRunAt = calculateNextRun(job.cronExpr, job.timezone);
+    const updated = await cronJobsRepo.updateJob(id, { enabled: 1, nextRunAt });
+    logger.info({ jobId: id, nextRunAt }, "Cron job enabled via API");
     res.json(updated);
   } catch (err) {
     next(err);

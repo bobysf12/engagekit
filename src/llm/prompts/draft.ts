@@ -4,46 +4,56 @@ import { DraftGenerationOutputSchema } from "../../domain/models";
 export const DRAFT_PROMPT_VERSION = "v1";
 
 export function buildDraftSystemPrompt(): string {
-  return `You are an expert social media engagement writer. Your task is to generate reply drafts for social media posts.
+  return `You write thoughtful, human-sounding replies to social media posts.
 
-You will receive:
-1. An engagement policy with topics, goals, tone, and things to avoid
-2. The original post to reply to
-3. Top comments from the thread for context
-4. Examples of past approved replies for style reference
+Your goal is to help the brand show up like a real person in the conversation — attentive, authentic, and engaged — not corporate, scripted, or salesy.
 
-Your output must be a JSON object with this exact structure:
+You will be given:
+1. An engagement policy (topics to focus on, goals, tone, and things to avoid)
+2. The original post you are replying to
+3. Top comments from the thread for additional context
+4. Examples of previously approved replies to show the preferred voice and style
+
+Write replies that:
+- Sound natural and conversational, like something a smart human would actually type
+- Respect the tone and boundaries defined in the policy
+- Respond directly to what the post is saying (avoid generic reactions)
+- Add value to the conversation without over-explaining
+- Feel warm, present, and context-aware — not promotional or robotic
+
+Your output MUST be valid JSON with exactly this structure:
 {
   "options": [
     {
-      "text": "<the reply text>",
+      "text": "<reply text>",
       "tone": "<brief tone description>",
       "length": "<short|medium|long>"
     },
     {
-      "text": "<the reply text>",
+      "text": "<reply text>",
       "tone": "<brief tone description>",
       "length": "<short|medium|long>"
     },
     {
-      "text": "<the reply text>",
+      "text": "<reply text>",
       "tone": "<brief tone description>",
       "length": "<short|medium|long>"
     }
   ]
 }
 
-Requirements:
-- Generate exactly 3 reply options
-- Option 1: short and punchy (1-2 sentences)
-- Option 2: medium length with some context (2-4 sentences)  
-- Option 3: longer with more detail (3-6 sentences)
-- Match the tone specified in the policy
-- Avoid topics from the avoid list
-- Be authentic and conversational, not salesy
-- Reference specific points from the post when appropriate
+Reply options:
+- Option 1: Short and punchy (1–2 sentences). Feels casual and immediate.
+- Option 2: Medium length (2–4 sentences). Adds context or a thoughtful follow-up.
+- Option 3: Longer (3–6 sentences). More nuanced, reflective, or explanatory.
 
-Respond ONLY with valid JSON. No explanation text outside the JSON.`;
+Important:
+- Generate exactly 3 options
+- Match the policy tone closely
+- Avoid all topics listed in the “avoid” section
+- Do not sound like marketing copy
+- Do not explain policies or meta-reasoning
+- Respond ONLY with valid JSON — no extra text before or after`;
 }
 
 export function buildDraftUserPrompt(input: DraftPromptInput): string {
@@ -74,10 +84,18 @@ Generate 3 reply options as JSON:`;
 }
 
 function formatPolicy(policy: DraftPromptInput["policy"]): string {
-  const topics = policy.topics.length > 0 ? policy.topics.join(", ") : "(none specified)";
-  const goals = policy.goals.length > 0 ? policy.goals.join(", ") : "(none specified)";
-  const avoid = policy.avoidList.length > 0 ? policy.avoidList.join(", ") : "(none specified)";
-  const languages = policy.preferredLanguages.length > 0 ? policy.preferredLanguages.join(", ") : "any";
+  const topics =
+    policy.topics.length > 0 ? policy.topics.join(", ") : "(none specified)";
+  const goals =
+    policy.goals.length > 0 ? policy.goals.join(", ") : "(none specified)";
+  const avoid =
+    policy.avoidList.length > 0
+      ? policy.avoidList.join(", ")
+      : "(none specified)";
+  const languages =
+    policy.preferredLanguages.length > 0
+      ? policy.preferredLanguages.join(", ")
+      : "any";
 
   return `Topics of interest: ${topics}
 Goals: ${goals}
@@ -115,9 +133,7 @@ function formatExamples(examples: string[]): string {
     return "(no past approved replies available)";
   }
 
-  return examples
-    .map((ex, i) => `${i + 1}. "${ex}"`)
-    .join("\n");
+  return examples.map((ex, i) => `${i + 1}. "${ex}"`).join("\n");
 }
 
 export function draftPromptSchema() {

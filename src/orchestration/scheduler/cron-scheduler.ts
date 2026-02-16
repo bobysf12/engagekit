@@ -5,6 +5,15 @@ import { logger } from "../../core/logger";
 import { env } from "../../core/config";
 
 const TICK_INTERVAL_MS = 60 * 1000;
+const STALE_RUN_TIMEOUT_SECONDS = 60 * 60; // 1 hour
+
+function calculateNextRun(cronExpr: string, timezone: string): number {
+  const interval = CronExpressionParser.parse(cronExpr, {
+    currentDate: new Date(),
+    tz: timezone,
+  });
+  return Math.floor(interval.next().getTime() / 1000);
+}
 
 class CronScheduler {
   private interval: ReturnType<typeof setInterval> | null = null;
@@ -22,8 +31,47 @@ class CronScheduler {
     }
 
     logger.info("Starting cron scheduler");
+    this.recoverStaleJobs();
+    this.fixMissingNextRunAt();
     this.tick();
     this.interval = setInterval(() => this.tick(), TICK_INTERVAL_MS);
+  }
+
+  private async recoverStaleJobs() {
+    try {
+      const recoveredRuns = await cronJobsRepo.recoverStaleRuns(STALE_RUN_TIMEOUT_SECONDS);
+      if (recoveredRuns > 0) {
+        logger.info({ count: recoveredRuns }, "Recovered stale job runs");
+      }
+
+      const jobs = await cronJobsRepo.listJobsStuckRunning(STALE_RUN_TIMEOUT_SECONDS);
+      for (const job of jobs) {
+        const nextRunAt = calculateNextRun(job.cronExpr, job.timezone);
+        await cronJobsRepo.markJobFailed(job.id, "Job timed out - recovered on scheduler restart");
+        await cronJobsRepo.updateJob(job.id, { nextRunAt });
+        logger.warn({ jobId: job.id }, "Recovered stale job marked as running");
+      }
+      if (jobs.length > 0) {
+        logger.info({ count: jobs.length }, "Recovered stale jobs");
+      }
+    } catch (error) {
+      logger.error({ error }, "Failed to recover stale jobs");
+    }
+  }
+
+  private async fixMissingNextRunAt() {
+    try {
+      const jobs = await cronJobsRepo.listEnabledJobs();
+      for (const job of jobs) {
+        if (job.nextRunAt === null) {
+          const nextRunAt = calculateNextRun(job.cronExpr, job.timezone);
+          await cronJobsRepo.updateJob(job.id, { nextRunAt });
+          logger.info({ jobId: job.id, nextRunAt }, "Fixed missing nextRunAt for job");
+        }
+      }
+    } catch (error) {
+      logger.error({ error }, "Failed to fix missing nextRunAt");
+    }
   }
 
   stop() {
@@ -36,17 +84,28 @@ class CronScheduler {
 
   private async tick() {
     if (this.isRunning) {
-      logger.debug("Scheduler tick already in progress, skipping");
+      logger.info("Scheduler tick already in progress, skipping");
       return;
     }
 
     this.isRunning = true;
+    logger.info("Scheduler tick starting");
     try {
+      await this.recoverStaleJobs();
+
       const now = Math.floor(Date.now() / 1000);
       const dueJobs = await cronJobsRepo.listDueJobs(now);
 
       if (dueJobs.length === 0) {
-        logger.debug("No due jobs found");
+        const allJobs = await cronJobsRepo.listEnabledJobs();
+        if (allJobs.length > 0) {
+          logger.info(
+            { jobs: allJobs.map(j => ({ id: j.id, nextRunAt: j.nextRunAt, now })) },
+            "No due jobs - enabled jobs status"
+          );
+        } else {
+          logger.info("No enabled cron jobs found");
+        }
         return;
       }
 

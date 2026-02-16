@@ -71,10 +71,50 @@ export interface Post {
   publishedAt: number | null;
   firstSeenAt: number;
   lastSeenAt: number;
+  engaged: number;
+  engagedAt: number | null;
+  engagedBy: string | null;
+  triageScore: number | null;
+  triageLabel: string | null;
+  triageAction: string | null;
 }
 
 export interface PostWithComments extends Post {
   comments: Comment[];
+}
+
+export interface MetricSnapshot {
+  id: number;
+  entityType: "post" | "comment";
+  entityId: number;
+  likesCount: number | null;
+  repliesCount: number | null;
+  repostsCount: number | null;
+  viewsCount: number | null;
+  capturedAt: number;
+  runAccountId: number;
+}
+
+export interface Account {
+  id: number;
+  platform: string;
+  displayName: string;
+  handle: string;
+  status: string;
+}
+
+export interface PostWorkspace {
+  post: Post;
+  account: Account | null;
+  triage: Triage | null;
+  metrics: MetricSnapshot | null;
+  drafts: Draft[];
+}
+
+export interface GenerateDraftsResult {
+  runAccountId: number;
+  triage: Triage;
+  drafts: Draft[];
 }
 
 export interface Comment {
