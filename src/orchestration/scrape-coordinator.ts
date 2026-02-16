@@ -8,6 +8,22 @@ import { AccountScrapeRunner } from "./account-scrape-runner";
 import { logger } from "../core/logger";
 import { env } from "../core/config";
 
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number, timeoutError: Error): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timeout = setTimeout(() => reject(timeoutError), timeoutMs);
+
+    promise
+      .then((value) => {
+        clearTimeout(timeout);
+        resolve(value);
+      })
+      .catch((error) => {
+        clearTimeout(timeout);
+        reject(error);
+      });
+  });
+}
+
 export interface ScrapeCoordinatorOptions {
   platform: Platform;
   trigger: "daily" | "manual";
@@ -34,6 +50,15 @@ export interface ScrapeCoordinatorResult {
 export class ScrapeCoordinator {
   async run(options: ScrapeCoordinatorOptions): Promise<ScrapeCoordinatorResult> {
     logger.info({ options }, "Starting scrape coordinator run");
+
+    try {
+      const recovered = await runsRepo.recoverStaleRunningRuns(env.RUN_LOCK_TIMEOUT_SECONDS);
+      if (recovered.runAccountsRecovered > 0 || recovered.runsRecovered > 0) {
+        logger.warn({ recovered, timeoutSeconds: env.RUN_LOCK_TIMEOUT_SECONDS }, "Recovered stale running scrape records");
+      }
+    } catch (error) {
+      logger.error({ error }, "Failed to recover stale running scrape records");
+    }
 
     const run = await runsRepo.createRun({
       trigger: options.trigger,
@@ -83,12 +108,20 @@ export class ScrapeCoordinator {
 
         try {
           const runner = new AccountScrapeRunner(account, adapter, runAccount.id);
-          const scrapeResult = await runner.run({
-            collectHome: options.collectHome ?? true,
-            collectProfiles: options.collectProfiles ?? true,
-            profileHandles: options.profileHandles ?? [],
-            searchQueries: options.searchQueries ?? [],
-          });
+          const scrapeTimeoutMs = env.SCRAPER_ACCOUNT_TIMEOUT_SECONDS * 1000;
+          const timeoutError = new Error(`Account scrape timed out after ${env.SCRAPER_ACCOUNT_TIMEOUT_SECONDS}s`);
+          (timeoutError as any).code = "ACCOUNT_SCRAPE_TIMEOUT";
+
+          const scrapeResult = await withTimeout(
+            runner.run({
+              collectHome: options.collectHome ?? true,
+              collectProfiles: options.collectProfiles ?? true,
+              profileHandles: options.profileHandles ?? [],
+              searchQueries: options.searchQueries ?? [],
+            }),
+            scrapeTimeoutMs,
+            timeoutError
+          );
 
           if (scrapeResult.error) {
             if (scrapeResult.error.code === "SESSION_INVALID" || scrapeResult.error.code === "SESSION_EXPIRED") {
@@ -112,10 +145,12 @@ export class ScrapeCoordinator {
             result.totalSnapshotsWritten += scrapeResult.snapshotsWritten;
           }
         } catch (error: any) {
-          logger.error({ accountId: account.id, error }, "Unexpected error during account scrape");
-          await runsRepo.markRunAccountFailed(runAccount.id, "UNEXPECTED_ERROR", error.message);
+          const errorCode = error?.code || "UNEXPECTED_ERROR";
+          const errorMessage = error?.message || "Unknown error during account scrape";
+          logger.error({ accountId: account.id, errorCode, errorMessage }, "Unexpected error during account scrape");
+          await runsRepo.markRunAccountFailed(runAccount.id, errorCode, errorMessage);
           result.accountsFailed++;
-          result.errors.push({ accountId: account.id, error: error.message });
+          result.errors.push({ accountId: account.id, error: errorMessage });
         }
       }
 
@@ -144,11 +179,13 @@ export class ScrapeCoordinator {
 
       return result;
     } catch (error: any) {
-      logger.error({ runId: run.id, error }, "Scrape coordinator run failed");
+      const errorMessage = error?.message || "Unknown scrape coordinator failure";
+      logger.error({ runId: run.id, error: errorMessage }, "Scrape coordinator run failed");
 
       await runsRepo.updateRun(run.id, {
         status: "failed",
         endedAt: Math.floor(Date.now() / 1000),
+        notes: JSON.stringify({ error: errorMessage }),
       });
 
       result.status = "failed";

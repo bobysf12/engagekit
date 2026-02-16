@@ -14,6 +14,7 @@ const envSchema = z.object({
   SCRAPER_MAX_COMMENTS_PER_THREAD: z.coerce.number().default(50),
   SCRAPER_ACTION_DELAY_MIN_MS: z.coerce.number().default(600),
   SCRAPER_ACTION_DELAY_MAX_MS: z.coerce.number().default(1800),
+  SCRAPER_ACCOUNT_TIMEOUT_SECONDS: z.coerce.number().default(600),
   RUN_LOCK_TIMEOUT_SECONDS: z.coerce.number().default(3600),
   TRIAGE_ENABLED: z.string().default("false").transform((v) => v === "true"),
   DEEP_SCRAPE_ENABLED: z.string().default("false").transform((v) => v === "true"),

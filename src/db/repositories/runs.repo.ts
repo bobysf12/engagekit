@@ -1,4 +1,4 @@
-import { eq, and, desc } from "drizzle-orm";
+import { eq, and, desc, lt } from "drizzle-orm";
 import type { ScrapeRun, NewScrapeRun, ScrapeRunAccount, NewScrapeRunAccount } from "../schema";
 import { scrapeRuns, scrapeRunAccounts } from "../schema";
 import { getDb } from "../client";
@@ -86,6 +86,37 @@ export class RunsRepository {
       errorDetail,
       endedAt: Math.floor(Date.now() / 1000),
     });
+  }
+
+  async recoverStaleRunningRuns(timeoutSeconds: number): Promise<{ runAccountsRecovered: number; runsRecovered: number }> {
+    const now = Math.floor(Date.now() / 1000);
+    const cutoff = now - timeoutSeconds;
+
+    const staleRunAccounts = await this.db
+      .update(scrapeRunAccounts)
+      .set({
+        status: "failed",
+        errorCode: "RUN_TIMEOUT",
+        errorDetail: `Run account timed out after ${timeoutSeconds}s and was auto-recovered`,
+        endedAt: now,
+      })
+      .where(and(eq(scrapeRunAccounts.status, "running"), lt(scrapeRunAccounts.startedAt, cutoff)))
+      .returning();
+
+    const staleRuns = await this.db
+      .update(scrapeRuns)
+      .set({
+        status: "failed",
+        endedAt: now,
+        notes: `Recovered stale run after timeout (${timeoutSeconds}s)`,
+      })
+      .where(and(eq(scrapeRuns.status, "running"), lt(scrapeRuns.startedAt, cutoff)))
+      .returning();
+
+    return {
+      runAccountsRecovered: staleRunAccounts.length,
+      runsRecovered: staleRuns.length,
+    };
   }
 }
 
