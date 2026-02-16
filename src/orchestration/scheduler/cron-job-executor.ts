@@ -75,6 +75,7 @@ export class CronJobExecutor {
           collectProfiles: profileHandles.length > 0,
           profileHandles,
           searchQueries,
+          maxPostsPerRun: config.maxPostsPerRun,
         });
 
         if (!scrapeResult || scrapeResult.accountsSucceeded === 0) {

@@ -32,6 +32,7 @@ export interface ScrapeCoordinatorOptions {
   collectProfiles?: boolean;
   profileHandles?: string[];
   searchQueries?: string[];
+  maxPostsPerRun?: number;
 }
 
 export interface ScrapeCoordinatorResult {
@@ -118,6 +119,7 @@ export class ScrapeCoordinator {
               collectProfiles: options.collectProfiles ?? true,
               profileHandles: options.profileHandles ?? [],
               searchQueries: options.searchQueries ?? [],
+              maxPostsPerRun: options.maxPostsPerRun,
             }),
             scrapeTimeoutMs,
             timeoutError

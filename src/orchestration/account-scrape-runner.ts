@@ -33,6 +33,7 @@ export class AccountScrapeRunner {
     collectProfiles: boolean;
     profileHandles: string[];
     searchQueries: string[];
+    maxPostsPerRun?: number;
   }): Promise<ScrapeResult> {
     logger.info({ accountId: this.account.id, handle: this.account.handle }, "Starting account scrape");
 
@@ -68,7 +69,7 @@ export class AccountScrapeRunner {
       }
 
       const postOptions: CollectPostOptions = {
-        maxPosts: env.SCRAPER_MAX_POSTS_PER_RUN,
+        maxPosts: options.maxPostsPerRun ?? env.SCRAPER_MAX_POSTS_PER_RUN,
       };
 
       const collectedPosts: any[] = [];
