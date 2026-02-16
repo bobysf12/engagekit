@@ -374,7 +374,7 @@ export function PostsListPage() {
       if (skippedIds.has(post.id)) return false;
       if (preset === "all" && post.engaged === 1) return false;
       if (preset === "needs-triage" && post.triageScore !== null) return false;
-      if (preset === "high-priority" && (post.triageScore === null || post.triageScore < 75)) return false;
+      if (preset === "high-priority" && (post.triageScore === null || post.triageScore < 75 || post.engaged === 1)) return false;
       if (preset === "not-engaged" && post.engaged === 1) return false;
       if (preset === "engaged" && post.engaged !== 1) return false;
       if (preset === "today" && !isToday(post.firstSeenAt)) return false;
@@ -393,7 +393,7 @@ export function PostsListPage() {
     return {
       all: visible.filter((p: Post) => p.engaged !== 1).length,
       "needs-triage": visible.filter((p: Post) => p.triageScore === null).length,
-      "high-priority": visible.filter((p: Post) => p.triageScore !== null && p.triageScore >= 75).length,
+      "high-priority": visible.filter((p: Post) => p.triageScore !== null && p.triageScore >= 75 && p.engaged !== 1).length,
       "not-engaged": visible.filter((p: Post) => p.engaged !== 1).length,
       engaged: visible.filter((p: Post) => p.engaged === 1).length,
       today: visible.filter((p: Post) => isToday(p.firstSeenAt)).length,
