@@ -21,6 +21,7 @@ const envSchema = z.object({
   DRAFTS_ENABLED: z.string().default("false").transform((v) => v === "true"),
   API_ENABLED: z.string().default("false").transform((v) => v === "true"),
   SCHEDULER_ENABLED: z.string().default("false").transform((v) => v === "true"),
+  CRON_EXECUTION_TIMEOUT_SECONDS: z.coerce.number().default(420),
   OPENROUTER_API_KEY: z.string().optional(),
   OPENROUTER_MODEL: z.string().default("anthropic/claude-3-haiku"),
   OPENROUTER_BASE_URL: z.string().default("https://openrouter.ai/api/v1"),

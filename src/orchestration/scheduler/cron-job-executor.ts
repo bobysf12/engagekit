@@ -10,11 +10,28 @@ import {
   type CronPipelineConfig,
 } from "../../domain/cron-config";
 import { logger } from "../../core/logger";
+import { env } from "../../core/config";
 
 export interface ExecuteResult {
   success: boolean;
   scrapeRunId?: number;
   error?: string;
+}
+
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number, timeoutError: Error): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timeout = setTimeout(() => reject(timeoutError), timeoutMs);
+
+    promise
+      .then((value) => {
+        clearTimeout(timeout);
+        resolve(value);
+      })
+      .catch((error) => {
+        clearTimeout(timeout);
+        reject(error);
+      });
+  });
 }
 
 export class CronJobExecutor {
@@ -65,42 +82,57 @@ export class CronJobExecutor {
       await cronJobsRepo.markJobRun(cronJob.id, jobRun.id, nextRunAt);
 
       try {
-        const { collectHome, profileHandles, searchQueries } = getSourcesFromConfig(config);
+        const timeoutMs = env.CRON_EXECUTION_TIMEOUT_SECONDS * 1000;
+        const timeoutError = new Error(`Cron execution timed out after ${env.CRON_EXECUTION_TIMEOUT_SECONDS}s`);
 
-        const scrapeResult = await scrapeCoordinator.run({
-          platform: account.platform as any,
-          trigger: "daily",
-          accountIds: [account.id],
-          collectHome,
-          collectProfiles: profileHandles.length > 0,
-          profileHandles,
-          searchQueries,
-          maxPostsPerRun: config.maxPostsPerRun,
-        });
+        const outcome = await withTimeout(
+          (async () => {
+            const { collectHome, profileHandles, searchQueries } = getSourcesFromConfig(config);
 
-        if (!scrapeResult || scrapeResult.accountsSucceeded === 0) {
-          const error = scrapeResult?.errors?.[0]?.error || "Scrape failed";
-          await cronJobsRepo.markJobRunFailed(jobRun.id, error);
-          await cronJobsRepo.markJobFailed(cronJob.id, error);
-          return { success: false, scrapeRunId: scrapeResult?.runId, error };
-        }
-
-        const runAccounts = await this.getRunAccountForScrape(scrapeResult.runId, account.id);
-        if (runAccounts.length > 0) {
-          for (const runAccount of runAccounts) {
-            await engagementPipelineCoordinator.run({
-              runAccountId: runAccount.id,
-              accountId: account.id,
-              generateDrafts: config.generateDrafts,
+            const scrapeResult = await scrapeCoordinator.run({
+              platform: account.platform as any,
+              trigger: "daily",
+              accountIds: [account.id],
+              collectHome,
+              collectProfiles: profileHandles.length > 0,
+              profileHandles,
+              searchQueries,
+              maxPostsPerRun: config.maxPostsPerRun,
             });
-          }
+
+            if (!scrapeResult || scrapeResult.accountsSucceeded === 0) {
+              const error = scrapeResult?.errors?.[0]?.error || "Scrape failed";
+              return { ok: false as const, scrapeRunId: scrapeResult?.runId, error };
+            }
+
+            const runAccounts = await this.getRunAccountForScrape(scrapeResult.runId, account.id);
+            if (runAccounts.length > 0) {
+              for (const runAccount of runAccounts) {
+                await engagementPipelineCoordinator.run({
+                  runAccountId: runAccount.id,
+                  accountId: account.id,
+                  generateDrafts: config.generateDrafts,
+                });
+              }
+            }
+
+            return { ok: true as const, scrapeRunId: scrapeResult.runId };
+          })(),
+          timeoutMs,
+          timeoutError
+        );
+
+        if (!outcome.ok) {
+          await cronJobsRepo.markJobRunFailed(jobRun.id, outcome.error);
+          await cronJobsRepo.markJobFailed(cronJob.id, outcome.error);
+          return { success: false, scrapeRunId: outcome.scrapeRunId, error: outcome.error };
         }
 
         await cronJobsRepo.markJobRunSuccess(jobRun.id);
         await cronJobsRepo.markJobSuccess(cronJob.id);
 
-        logger.info({ ...logCtx, scrapeRunId: scrapeResult.runId }, "Cron job completed successfully");
-        return { success: true, scrapeRunId: scrapeResult.runId };
+        logger.info({ ...logCtx, scrapeRunId: outcome.scrapeRunId }, "Cron job completed successfully");
+        return { success: true, scrapeRunId: outcome.scrapeRunId };
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : "Unknown error";
         logger.error({ ...logCtx, error: errorMessage }, "Cron job execution failed");
