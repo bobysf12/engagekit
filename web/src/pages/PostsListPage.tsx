@@ -1,7 +1,8 @@
 import { useState, useMemo, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { Link } from "react-router-dom";
 import { api } from "@/api/client";
-import type { Post } from "@/api/types";
+import type { Post, PostWorkspace } from "@/api/types";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Spinner } from "@/components/ui/spinner";
@@ -275,6 +276,12 @@ export function PostsListPage() {
       }),
   });
 
+  const { data: selectedWorkspace } = useQuery<PostWorkspace | null>({
+    queryKey: ["post-workspace", selectedPost?.id],
+    queryFn: () => (selectedPost ? api.posts.workspace(selectedPost.id) : Promise.resolve(null)),
+    enabled: !!selectedPost,
+  });
+
   useEffect(() => {
     try {
       const rawViews = localStorage.getItem(SAVED_VIEWS_KEY);
@@ -378,9 +385,7 @@ export function PostsListPage() {
 
   const handleSelectPost = (post: Post) => {
     setSelectedPost(post);
-    if (window.innerWidth < 1024) {
-      setSheetOpen(true);
-    }
+    setSheetOpen(true);
   };
 
   const handleSkip = (post?: Post | null) => {
@@ -829,7 +834,7 @@ export function PostsListPage() {
             <SheetDescription>{selectedPost?.authorDisplayName}</SheetDescription>
           </SheetHeader>
 
-          <div className="px-4 space-y-4">
+          <div className="px-4 space-y-4 pb-24">
             <div className="flex items-center gap-2 flex-wrap">
               {selectedPost?.triageScore !== null && (
                 <Badge variant={selectedPost?.triageScore && selectedPost.triageScore >= 75 ? "success" : "secondary"} className="gap-1">
@@ -856,25 +861,40 @@ export function PostsListPage() {
               </p>
             </div>
 
+            <div className="rounded-lg border p-3">
+              <p className="text-xs uppercase tracking-wide text-muted-foreground mb-2">Post metrics</p>
+              <div className="grid grid-cols-4 gap-2 text-center">
+                <div>
+                  <p className="text-[11px] text-muted-foreground">Likes</p>
+                  <p className="text-sm font-medium">{selectedWorkspace?.metrics?.likesCount ?? "-"}</p>
+                </div>
+                <div>
+                  <p className="text-[11px] text-muted-foreground">Replies</p>
+                  <p className="text-sm font-medium">{selectedWorkspace?.metrics?.repliesCount ?? "-"}</p>
+                </div>
+                <div>
+                  <p className="text-[11px] text-muted-foreground">Reposts</p>
+                  <p className="text-sm font-medium">{selectedWorkspace?.metrics?.repostsCount ?? "-"}</p>
+                </div>
+                <div>
+                  <p className="text-[11px] text-muted-foreground">Views</p>
+                  <p className="text-sm font-medium">{selectedWorkspace?.metrics?.viewsCount ?? "-"}</p>
+                </div>
+              </div>
+            </div>
+
             <div className="text-xs text-muted-foreground">Scraped: {formatDate(selectedPost?.firstSeenAt ?? null)}</div>
           </div>
 
-          <SheetFooter className="flex-col sm:flex-row gap-2">
-            <Button variant="outline" className="flex-1 gap-2" onClick={() => handleSkip()}>
+          <SheetFooter className="grid grid-cols-2 gap-2 sm:flex-row">
+            <Button variant="outline" className="gap-2" onClick={() => handleSkip()}>
               <SkipForward className="h-4 w-4" />
               Skip
             </Button>
-            {selectedPost?.postUrl && (
-              <Button variant="outline" className="flex-1 gap-2" asChild>
-                <a href={selectedPost.postUrl} target="_blank" rel="noopener noreferrer">
-                  <ExternalLink className="h-4 w-4" />
-                  Open Source
-                </a>
-              </Button>
-            )}
+
             <Button
               variant={selectedPost?.engaged ? "secondary" : "default"}
-              className="flex-1 gap-2"
+              className="gap-2"
               onClick={() => {
                 if (selectedPost) {
                   engageMutation.mutate({ id: selectedPost.id, engaged: !selectedPost.engaged });
@@ -890,10 +910,41 @@ export function PostsListPage() {
               ) : (
                 <>
                   <Check className="h-4 w-4" />
-                  Mark Engaged
+                  Engage
                 </>
               )}
             </Button>
+
+            <Button
+              variant="outline"
+              className="gap-2"
+              onClick={() => selectedPost && draftMutation.mutate(selectedPost.id)}
+              disabled={draftMutation.isPending || !selectedPost}
+            >
+              {draftMutation.isPending ? <Spinner className="h-4 w-4" /> : <WandSparkles className="h-4 w-4" />}
+              Draft
+            </Button>
+
+            {selectedPost?.postUrl ? (
+              <Button variant="outline" className="gap-2" asChild>
+                <a href={selectedPost.postUrl} target="_blank" rel="noopener noreferrer">
+                  <ExternalLink className="h-4 w-4" />
+                  Source
+                </a>
+              </Button>
+            ) : (
+              <Button variant="outline" disabled>
+                Source
+              </Button>
+            )}
+
+            {selectedPost ? (
+              <Button variant="outline" className="col-span-2 gap-2" asChild>
+                <Link to={`/posts/${selectedPost.id}`} onClick={() => setSheetOpen(false)}>
+                  Open full details
+                </Link>
+              </Button>
+            ) : null}
           </SheetFooter>
         </SheetContent>
       </Sheet>
