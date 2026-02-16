@@ -314,6 +314,20 @@ export function PostsListPage() {
     localStorage.setItem(SKIPPED_IDS_KEY, JSON.stringify([...next]));
   };
 
+  const getNextQueuePost = (currentId: number, additionalExcludedIds: Set<number> = new Set()) => {
+    const currentIndex = filteredPosts.findIndex((p) => p.id === currentId);
+
+    const remaining = filteredPosts.filter((p) => p.id !== currentId && !additionalExcludedIds.has(p.id));
+
+    const preferredNext =
+      remaining.find((p) => {
+        const idx = filteredPosts.findIndex((fp) => fp.id === p.id);
+        return currentIndex >= 0 && idx > currentIndex;
+      }) ?? remaining[remaining.length - 1] ?? null;
+
+    return preferredNext;
+  };
+
   const deleteMutation = useMutation({
     mutationFn: (id: number) => api.posts.delete(id),
     onSuccess: () => {
@@ -331,8 +345,18 @@ export function PostsListPage() {
       api.posts.setEngagement(id, engaged),
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: ["posts"] });
-      if (selectedPost) {
-        setSelectedPost({ ...selectedPost, engaged: variables.engaged ? 1 : 0 });
+
+      if (variables.engaged) {
+        const nextPost = getNextQueuePost(variables.id);
+        setSelectedPost(nextPost);
+        if (!nextPost) {
+          setSheetOpen(false);
+        }
+        return;
+      }
+
+      if (selectedPost?.id === variables.id) {
+        setSelectedPost({ ...selectedPost, engaged: 0 });
       }
     },
   });
@@ -392,21 +416,15 @@ export function PostsListPage() {
     const target = post ?? selectedPost;
     if (!target) return;
 
-    const currentIndex = filteredPosts.findIndex((p) => p.id === target.id);
     const nextSkipped = new Set(skippedIds);
     nextSkipped.add(target.id);
 
-    const remaining = filteredPosts.filter((p) => p.id !== target.id && !nextSkipped.has(p.id));
-    const preferredNext =
-      remaining.find((p) => {
-        const idx = filteredPosts.findIndex((fp) => fp.id === p.id);
-        return currentIndex >= 0 && idx > currentIndex;
-      }) ?? remaining[remaining.length - 1] ?? null;
+    const nextPost = getNextQueuePost(target.id, nextSkipped);
 
     persistSkipped(nextSkipped);
-    setSelectedPost(preferredNext);
+    setSelectedPost(nextPost);
 
-    if (!preferredNext) {
+    if (!nextPost) {
       setSheetOpen(false);
     }
   };
