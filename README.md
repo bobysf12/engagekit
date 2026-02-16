@@ -54,7 +54,7 @@ docker compose up -d --build
 
 View logs:
 ```bash
-docker compose logs -f engagekit
+docker compose logs -f engagekit engagekit-web
 ```
 
 Stop:
@@ -63,9 +63,11 @@ docker compose down
 ```
 
 Notes:
-- API listens on `http://localhost:3000`
-- Container mounts `./data` to `/app/data` so `data/app.db` survives restarts
+- API backend: `http://localhost:3000`
+- Frontend (Vite): `http://localhost:5173`
+- Backend container mounts `./data` to `/app/data` so `data/app.db` survives restarts
 - `API_ENABLED=true`, `SCHEDULER_ENABLED=true`, `API_HOST=0.0.0.0`, and `API_PORT=3000` are set in `docker-compose.yml`
+- Frontend proxies `/api` and `/health` to backend via `VITE_API_PROXY_TARGET=http://engagekit:3000`
 
 ## Usage
 

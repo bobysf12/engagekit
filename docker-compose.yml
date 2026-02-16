@@ -17,3 +17,16 @@ services:
       API_PORT: "3000"
     volumes:
       - ./data:/app/data
+
+  engagekit-web:
+    build:
+      context: .
+      dockerfile: Dockerfile.web
+    container_name: engagekit-web
+    restart: unless-stopped
+    depends_on:
+      - engagekit
+    environment:
+      VITE_API_PROXY_TARGET: http://engagekit:3000
+    ports:
+      - "5173:5173"
