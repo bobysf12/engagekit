@@ -43,6 +43,30 @@ bun run db:migrate
 cp .env.example .env
 ```
 
+## Docker
+
+SQLite data is persisted via a bind mount to `./data`.
+
+Build and run:
+```bash
+docker compose up -d --build
+```
+
+View logs:
+```bash
+docker compose logs -f engagekit
+```
+
+Stop:
+```bash
+docker compose down
+```
+
+Notes:
+- API listens on `http://localhost:3000`
+- Container mounts `./data` to `/app/data` so `data/app.db` survives restarts
+- `API_ENABLED=true`, `SCHEDULER_ENABLED=true`, `API_HOST=0.0.0.0`, and `API_PORT=3000` are set in `docker-compose.yml`
+
 ## Usage
 
 ### Account Management
