@@ -66,6 +66,7 @@ Notes:
 - API backend: `http://localhost:3000`
 - Frontend (Vite): `http://localhost:5173`
 - Backend container mounts `./data` to `/app/data` so `data/app.db` survives restarts
+- Backend image installs Playwright Chromium (`bunx playwright install --with-deps chromium`) for scraping
 - `API_ENABLED=true`, `SCHEDULER_ENABLED=true`, `API_HOST=0.0.0.0`, and `API_PORT=3000` are set in `docker-compose.yml`
 - Frontend proxies `/api` and `/health` to backend via `VITE_API_PROXY_TARGET=http://engagekit:3000`
 

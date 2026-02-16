@@ -6,6 +6,7 @@ RUN bun install --frozen-lockfile
 
 COPY . .
 RUN mkdir -p /app/data
+RUN bunx playwright install --with-deps chromium
 
 ENV NODE_ENV=production
 ENV DATABASE_PATH=./data/app.db
