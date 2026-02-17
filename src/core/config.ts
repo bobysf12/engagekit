@@ -25,6 +25,8 @@ const envSchema = z.object({
   OPENROUTER_API_KEY: z.string().optional(),
   OPENROUTER_MODEL: z.string().default("anthropic/claude-3-haiku"),
   OPENROUTER_BASE_URL: z.string().default("https://openrouter.ai/api/v1"),
+  SESSION_BLOB_SECRET: z.string().optional(),
+  SESSION_BLOB_TTL_SECONDS: z.coerce.number().default(600),
   SELECTION_TOP_N: z.coerce.number().default(20),
   SELECTION_SCORE_THRESHOLD: z.coerce.number().default(75),
   API_PORT: z.coerce.number().default(3000),

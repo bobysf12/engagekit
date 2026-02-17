@@ -7,6 +7,7 @@ import { triageRoutes } from "./routes/triage.routes";
 import { draftsRoutes } from "./routes/drafts.routes";
 import { policiesRoutes } from "./routes/policies.routes";
 import { cronRoutes } from "./routes/cron.routes";
+import { authRoutes } from "./routes/auth.routes";
 import { cronScheduler } from "../orchestration/scheduler";
 
 const app = express();
@@ -23,6 +24,7 @@ app.use("/api/triage", triageRoutes);
 app.use("/api/drafts", draftsRoutes);
 app.use("/api/policies", policiesRoutes);
 app.use("/api/cron", cronRoutes);
+app.use("/api/auth", authRoutes);
 
 app.use(
   (

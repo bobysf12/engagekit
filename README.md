@@ -1,189 +1,164 @@
 # Multi-account Engagement Copilot for X/Threads
 
-A human-in-the-loop scraper for X and Threads that collects posts, replies, and metrics. Designed for safe manual engagement with no auto-posting.
+Engagekit is a human-in-the-loop scraping and response-assist tool for Threads and X. It helps teams collect posts, triage relevance, generate draft replies, and review everything manually before any engagement.
 
-## Features
+## Prerequisites
 
-- **Multi-account support**: Manage multiple Threads and X accounts
-- **One-time headful login**: Use Playwright storageState for persistent sessions
-- **Daily headless scraping**: Collect from notifications, own threads, and optional searches
-- **Content deduplication**: SHA256-based content hashing to avoid duplicates
-- **Comprehensive data collection**: Posts, comments, metric snapshots, raw JSON snapshots
-- **Safe human-in-the-loop**: Engagement queue and LLM drafts (no auto-posting)
-- **SQLite with Drizzle ORM**: Simple, portable database
-- **Type-safe**: Full TypeScript implementation
+- Bun (latest stable)
+- Node-compatible system dependencies for Playwright Chromium
+- SQLite (file-based; no server setup needed)
+- OpenRouter API key for LLM-powered triage/drafts (`OPENROUTER_API_KEY`)
+- A local `.env` file based on `.env.example`
 
-## Tech Stack
+Optional for containerized setup:
+- Docker + Docker Compose
 
-- **Runtime**: Bun
-- **Database**: SQLite + Drizzle ORM
-- **Scraping**: Playwright
-- **Validation**: Zod
-- **Logging**: Pino
+## How to Install
 
-## Setup
+From the repository root:
 
-1. Install dependencies:
 ```bash
 bun install
-```
-
-2. Install Playwright browsers:
-```bash
 bunx playwright install chromium
-```
-
-3. Set up database:
-```bash
+cp .env.example .env
 bun run db:migrate
 ```
 
-4. Copy environment variables:
+Recommended first checks:
+
 ```bash
-cp .env.example .env
-```
-
-## Docker
-
-SQLite data is persisted via a bind mount to `./data`.
-
-Build and run:
-```bash
-docker compose up -d --build
-```
-
-View logs:
-```bash
-docker compose logs -f engagekit engagekit-web
-```
-
-Stop:
-```bash
-docker compose down
-```
-
-Notes:
-- API backend: `http://localhost:3000`
-- Frontend (Vite): `http://localhost:5173`
-- Backend container mounts `./data` to `/app/data` so `data/app.db` survives restarts
-- Backend image installs Playwright Chromium (`bunx playwright install --with-deps chromium`) for scraping
-- `API_ENABLED=true`, `SCHEDULER_ENABLED=true`, `API_HOST=0.0.0.0`, and `API_PORT=3000` are set in `docker-compose.yml`
-- Frontend proxies `/api` and `/health` to backend via `VITE_API_PROXY_TARGET=http://engagekit:3000`
-
-## Usage
-
-### Account Management
-
-Add a new account:
-```bash
-bun run cli accounts:add --platform threads --handle yourhandle --name "Your Name"
-```
-
-List accounts:
-```bash
-bun run cli accounts:list
-```
-
-Update account status:
-```bash
-bun run cli accounts:update-status --id 1 --status active
-```
-
-### Authentication
-
-Perform headful login (browser opens, waits for manual login completion):
-```bash
-bun run cli auth:login --account 1
-```
-
-Check session validity:
-```bash
-bun run cli auth:check --account 1
-```
-
-### Scraping
-
-Scrape all active accounts for a platform:
-```bash
-bun run cli scrape:daily --platform threads
-```
-
-Scrape a specific account:
-```bash
-bun run cli scrape:account --account 1
-```
-
-With custom options:
-```bash
-bun run cli scrape:daily --platform threads --no-notifications --search "keyword1 keyword2"
-```
-
-### Viewing Results
-
-List recent scrape runs:
-```bash
-bun run cli runs:list
-```
-
-List engagement queue:
-```bash
-bun run cli queue:list --status pending
-```
-
-## Architecture
-
-```
-src/
-├── cli/                    # CLI commands
-├── core/                   # Utilities (config, logger, hash, retry, etc.)
-├── db/                     # Database (Drizzle schema, repositories)
-├── domain/                 # Domain models and types
-├── platforms/              # Platform adapters (threads, x)
-├── orchestration/          # Scrape coordinator and runner
-└── services/               # Business services
-```
-
-### Platform Adapters
-
-The `PlatformAdapter` interface defines the contract for each platform:
-- `validateSession()`: Check if session is valid
-- `collectNotifications()`: Scrape notifications
-- `collectOwnThreads()`: Scrape own posts
-- `collectSearch()`: Search for content
-- `expandThreadComments()`: Get comments for a post
-- `extractMetrics()`: Get engagement metrics
-
-## Session Lifecycle
-
-1. **Initial setup**: `needs_initial_auth` → `auth:login` → `active`
-2. **Expired session**: `active` → `needs_reauth` (detected during scrape)
-3. **Re-auth**: `needs_reauth` → `auth:login` → `active`
-
-If session is invalid during a headless scrape, the account is marked `needs_reauth` and skipped.
-
-## Database Schema
-
-- `accounts`: Account configurations and auth status
-- `scrape_runs`: Global scrape run tracking
-- `scrape_run_accounts`: Per-account run results
-- `posts`: Collected posts with content hash deduplication
-- `comments`: Collected comments
-- `metric_snapshots`: Engagement metrics over time
-- `raw_snapshots`: Full JSON payloads for debugging
-- `engagement_queue`: Human review queue
-- `llm_drafts`: Drafted reply suggestions
-
-## Development
-
-Run tests:
-```bash
+bun run typecheck
 bun test
 ```
 
-Typecheck:
+## How to Run
+
+### CLI (main workflow)
+
+- Start with command help:
+
+```bash
+bun run cli --help
+```
+
+- Add and authenticate an account:
+
+```bash
+bun run cli accounts:add --platform threads --handle yourhandle --name "Your Name"
+bun run cli auth:login --account 1
+bun run cli auth:check --account 1
+```
+
+- Remote-server MVP auth via session blob:
+
+```bash
+# On local machine where login already exists
+bun run cli auth:export --account 1 --ttl 600
+
+# On remote server (same SESSION_BLOB_SECRET), paste blob output
+bun run cli auth:import --account 1 --blob "<SESSION_BLOB>"
+```
+
+- Run scraping and pipeline:
+
+```bash
+bun run cli scrape:daily --platform threads
+bun run cli scrape:account --account 1
+bun run cli pipeline:run --run-account 1
+```
+
+- Inspect output:
+
+```bash
+bun run cli runs:list
+bun run cli queue:list --status pending
+bun run cli triage:list --run-account 1
+bun run cli drafts:list --run-account 1
+```
+
+### API server
+
+```bash
+bun run api
+```
+
+Default API address: `http://127.0.0.1:3000` (controlled by `API_HOST` and `API_PORT`).
+
+### Web dashboard
+
+```bash
+bun run web:dev
+```
+
+Vite dev UI runs on `http://localhost:5173` and proxies to the API.
+
+Production build:
+
+```bash
+bun run web:build
+```
+
+### Docker (optional)
+
+```bash
+docker compose up -d --build
+docker compose logs -f engagekit engagekit-web
+docker compose down
+```
+
+The SQLite database persists in `./data`.
+
+## Use Cases
+
+- **Social listening with context**: Collect and monitor mentions, replies, and related discussion across multiple accounts.
+- **Human-reviewed engagement**: Generate LLM draft responses while keeping final approval fully manual.
+- **Team moderation workflow**: Use queue/triage to prioritize high-value posts and avoid low-signal interactions.
+- **Prompt feedback loop**: Store draft selection feedback to improve future output quality over time.
+- **Scheduled operations**: Run recurring scrape/pipeline jobs with cron commands for ongoing monitoring.
+
+## README for Coding Agents
+
+If you are an autonomous coding agent working in this repo:
+
+1. Read `AGENTS.md` first; it is the source of truth for agent workflow.
+2. Use focused, minimal changes and preserve style in touched files.
+3. Run targeted tests for edited areas, then run:
+
+```bash
+bun run typecheck && bun test
+```
+
+4. Keep DB logic in `src/db/repositories/`, domain schemas in `src/domain/`, and LLM calls in `src/llm/openrouter-client.ts`.
+5. Never commit `.env` or runtime artifacts under `data/sessions/*`.
+
+Quick test commands for agent loops:
+
+```bash
+bun test tests/unit/hash.test.ts
+bun test -t "should produce consistent hashes"
+bun test hash
+```
+
+## Contributing
+
+We welcome focused contributions.
+
+1. Create a branch for your change.
+2. Keep PRs scoped (one feature/fix per PR).
+3. Follow TypeScript strict-mode and existing naming/style conventions.
+4. Add or update tests when behavior changes.
+5. Run quality checks before opening a PR:
+
 ```bash
 bun run typecheck
+bun test
+cd web && bun run lint
 ```
+
+6. Include in your PR description:
+   - What changed
+   - Why it changed
+   - How you tested it
 
 ## License
 

@@ -16,6 +16,11 @@ import {
   getRequiredStorageState,
   hasSessionState,
 } from "../../services/playwright-session-state";
+import { createSessionBlob, decodeSessionBlob } from "../../services/session-blob";
+
+function getPlatformAdapter(platform: string) {
+  return platform === "threads" ? new ThreadsAdapter() : new XAdapter();
+}
 
 export const commands = (program: Command) => {
   program
@@ -47,10 +52,7 @@ export const commands = (program: Command) => {
         });
         context = await browser.newContext();
 
-        const adapter =
-          account.platform === "threads"
-            ? new ThreadsAdapter()
-            : new XAdapter();
+        const adapter = getPlatformAdapter(account.platform);
         await adapter.performLogin(await context.newPage(), account.handle);
 
         const state = await context.storageState();
@@ -112,10 +114,7 @@ export const commands = (program: Command) => {
           storageState: storageState as any,
         });
 
-        const adapter =
-          account.platform === "threads"
-            ? new ThreadsAdapter()
-            : new XAdapter();
+        const adapter = getPlatformAdapter(account.platform);
         const authState = await adapter.validateSession(
           await context.newPage(),
         );
@@ -145,6 +144,81 @@ export const commands = (program: Command) => {
       } finally {
         if (context) await context.close();
         if (browser) await browser.close();
+      }
+    });
+
+  program
+    .command("auth:export")
+    .requiredOption("--account <id>", "Account ID")
+    .option("--ttl <seconds>", "Blob validity in seconds", String(env.SESSION_BLOB_TTL_SECONDS))
+    .action(async (options) => {
+      const id = parseInt(options.account, 10);
+      const ttlSeconds = parseInt(options.ttl, 10);
+      const account = await accountsRepo.findById(id);
+
+      if (!account) {
+        logger.error({ id }, "Account not found");
+        process.exit(1);
+      }
+
+      if (!hasSessionState(account)) {
+        logger.error({ accountId: id }, "No session state found on this machine/account");
+        process.exit(1);
+      }
+
+      try {
+        const storageState = getRequiredStorageState(account);
+        const blob = createSessionBlob(storageState, ttlSeconds);
+        const exp = Math.floor(Date.now() / 1000) + ttlSeconds;
+
+        console.log("SESSION_BLOB_START");
+        console.log(blob);
+        console.log("SESSION_BLOB_END");
+
+        logger.info({ accountId: id, expiresAt: exp }, "Session blob exported");
+      } catch (error: any) {
+        logger.error({ accountId: id, error: error.message }, "Failed to export session blob");
+        process.exit(1);
+      }
+    });
+
+  program
+    .command("auth:import")
+    .requiredOption("--account <id>", "Account ID")
+    .requiredOption("--blob <blob>", "Session blob from auth:export")
+    .action(async (options) => {
+      const id = parseInt(options.account, 10);
+      const account = await accountsRepo.findById(id);
+
+      if (!account) {
+        logger.error({ id }, "Account not found");
+        process.exit(1);
+      }
+
+      try {
+        const decoded = decodeSessionBlob(options.blob);
+        const sessionStateJson = serializeStorageState(decoded.state);
+
+        await accountsRepo.update(id, {
+          status: "active",
+          sessionStateJson,
+          lastAuthAt: Math.floor(Date.now() / 1000),
+          lastAuthCheckAt: Math.floor(Date.now() / 1000),
+        });
+        await accountsRepo.clearAuthError(id);
+
+        logger.info(
+          {
+            accountId: id,
+            importedIssuedAt: decoded.iat,
+            importedExpiresAt: decoded.exp,
+            cookieCount: decoded.state.cookies?.length || 0,
+          },
+          "Session blob imported and account activated",
+        );
+      } catch (error: any) {
+        logger.error({ accountId: id, error: error.message }, "Failed to import session blob");
+        process.exit(1);
       }
     });
 };
