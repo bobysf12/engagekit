@@ -108,6 +108,10 @@ export const commands = (program: Command) => {
         totalSnapshotsWritten: result.totalSnapshotsWritten,
       }, "Account scrape completed");
 
+      if (result.errors.length > 0) {
+        logger.warn({ errors: result.errors }, "Errors occurred during account scrape");
+      }
+
       if (runPipeline && (env.TRIAGE_ENABLED || env.DEEP_SCRAPE_ENABLED || env.DRAFTS_ENABLED)) {
         await runPipelineForScrapeRun(result.runId, generateDrafts);
       }

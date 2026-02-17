@@ -58,6 +58,13 @@ export class CronJobExecutor {
       return { success: false, error };
     }
 
+    if (account.status !== "active") {
+      const error = `Account ${account.id} is ${account.status}; re-authenticate or set status to active before cron scrape`;
+      logger.warn({ ...logCtx, accountStatus: account.status }, "Skipping cron execution because account is not active");
+      await cronJobsRepo.markJobFailed(cronJob.id, error);
+      return { success: false, error };
+    }
+
     if (!this.acquireAccountLock(account.id)) {
       const error = `Account ${account.id} already has an active cron execution`;
       logger.warn({ ...logCtx, error }, "Skipping cron execution due to account lock");

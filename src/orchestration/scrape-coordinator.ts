@@ -87,8 +87,31 @@ export class ScrapeCoordinator {
 
       const activeAccounts = targetAccounts.filter((acc) => acc!.status === "active") as any[];
 
+      if (options.accountIds && options.accountIds.length > 0) {
+        const foundIds = new Set(targetAccounts.map((acc) => acc!.id));
+        const missingIds = options.accountIds.filter((id) => !foundIds.has(id));
+        for (const missingId of missingIds) {
+          result.errors.push({ accountId: missingId, error: `Account ${missingId} not found` });
+        }
+
+        const inactiveAccounts = targetAccounts.filter((acc) => acc && acc.status !== "active") as any[];
+        for (const account of inactiveAccounts) {
+          result.accountsSkipped++;
+          result.errors.push({
+            accountId: account.id,
+            error: `Account ${account.id} is ${account.status}; re-authenticate or set status to active before scraping`,
+          });
+        }
+      }
+
       if (activeAccounts.length === 0) {
-        logger.warn({ platform: options.platform }, "No active accounts found for scraping");
+        logger.warn(
+          {
+            platform: options.platform,
+            requestedAccountIds: options.accountIds,
+          },
+          "No active accounts found for scraping"
+        );
         result.status = "partial";
       }
 
@@ -159,6 +182,8 @@ export class ScrapeCoordinator {
       result.status =
         result.accountsFailed > 0
           ? "partial"
+          : result.accountsProcessed === 0 && result.errors.length > 0
+          ? "failed"
           : result.accountsProcessed === 0
           ? "partial"
           : "success";
