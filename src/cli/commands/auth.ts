@@ -139,7 +139,7 @@ export const commands = (program: Command) => {
           );
         }
       } catch (error: any) {
-        logger.error({ accountId: id, error }, "Session check failed");
+        logger.error(error, "Session check failed");
         await accountsRepo.setNeedsReauth(id, "CHECK_FAILED", error.message);
       } finally {
         if (context) await context.close();
