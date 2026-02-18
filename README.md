@@ -1,6 +1,11 @@
-# Multi-account Engagement Copilot for X/Threads
+# Multi-account Engagement Copilot for Threads
 
-Engagekit is a human-in-the-loop scraping and response-assist tool for Threads and X. It helps teams collect posts, triage relevance, generate draft replies, and review everything manually before any engagement.
+Engagekit is a human-in-the-loop scraping and response-assist tool for Threads. It helps teams collect posts, triage relevance, generate draft replies, and review everything manually before any engagement.
+
+## Platform Support
+
+- **Threads**: Fully supported for authentication and scraping
+- **X (Twitter)**: In progress — authentication and scraping not yet working
 
 ## Prerequisites
 

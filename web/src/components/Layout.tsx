@@ -20,7 +20,7 @@ export function Layout() {
   return (
     <div className="min-h-screen bg-background overflow-x-hidden">
       <header className="sticky top-0 z-40 border-b bg-background">
-        <div className="container h-14 flex items-center gap-3 min-w-0">
+        <div className="max-w-7xl mx-auto h-14 flex items-center gap-3 px-4 sm:px-6 lg:px-8">
           <span className="font-semibold text-base sm:text-lg shrink-0">Engagekit</span>
           <nav className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto scrollbar-hide">
             {navItems.map((item) => (
@@ -43,7 +43,7 @@ export function Layout() {
           </nav>
         </div>
       </header>
-      <main className="container py-6 min-w-0">
+      <main className="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8">
         <Outlet />
       </main>
     </div>
