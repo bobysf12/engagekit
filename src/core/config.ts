@@ -23,7 +23,7 @@ const envSchema = z.object({
   SCHEDULER_ENABLED: z.string().default("false").transform((v) => v === "true"),
   CRON_EXECUTION_TIMEOUT_SECONDS: z.coerce.number().default(420),
   OPENROUTER_API_KEY: z.string().optional(),
-  OPENROUTER_MODEL: z.string().default("anthropic/claude-3-haiku"),
+  OPENROUTER_MODEL: z.string().default("google/gemini-2.5-flash"),
   OPENROUTER_BASE_URL: z.string().default("https://openrouter.ai/api/v1"),
   SESSION_BLOB_SECRET: z.string().optional(),
   SESSION_BLOB_TTL_SECONDS: z.coerce.number().default(600),

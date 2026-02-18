@@ -117,7 +117,7 @@ Add LLM config only when enabling triage or drafts:
 
 ```env
 OPENROUTER_API_KEY=your_key_here
-OPENROUTER_MODEL=anthropic/claude-3-haiku
+OPENROUTER_MODEL=google/gemini-2.5-flash
 OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
 ```
 

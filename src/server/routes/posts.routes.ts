@@ -15,6 +15,7 @@ export const postsRoutes = Router();
 
 postsRoutes.get("/", async (req, res, next) => {
   try {
+    logger.info("POSTS LIST ENDPOINT CALLED - NEW CODE");
     const limit = Math.min(Math.max(parseInt(req.query.limit as string) || 50, 1), 200);
     const offset = parseInt(req.query.offset as string) || 0;
     const platform = req.query.platform as string;
