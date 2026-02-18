@@ -20,6 +20,7 @@ postsRoutes.get("/", async (req, res, next) => {
     const platform = req.query.platform as string;
     const sourceAccountId = req.query.sourceAccountId ? parseInt(req.query.sourceAccountId as string) : undefined;
     const engaged = req.query.engaged === "true" ? true : req.query.engaged === "false" ? false : undefined;
+    const triageStatus = req.query.triageStatus as string | undefined;
 
     const db = getDb();
 
@@ -33,6 +34,22 @@ postsRoutes.get("/", async (req, res, next) => {
     if (engaged !== undefined) {
       conditions.push(eq(posts.engaged, engaged ? 1 : 0));
     }
+
+    const triageScoreSubquery = sql<number | null>`(
+      SELECT pt.relevance_score 
+      FROM post_triage pt 
+      WHERE pt.post_id = posts.id 
+      ORDER BY pt.created_at DESC 
+      LIMIT 1
+    )`;
+
+    if (triageStatus === "needs-triage") {
+      conditions.push(sql`(${triageScoreSubquery}) IS NULL`);
+    } else if (triageStatus === "high-priority") {
+      conditions.push(sql`(${triageScoreSubquery}) >= 75`);
+    }
+
+    const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
 
     const result = await db
       .select({
@@ -53,13 +70,7 @@ postsRoutes.get("/", async (req, res, next) => {
         engaged: posts.engaged,
         engagedAt: posts.engagedAt,
         engagedBy: posts.engagedBy,
-        triageScore: sql<number | null>`(
-          SELECT pt.relevance_score 
-          FROM post_triage pt 
-          WHERE pt.post_id = posts.id 
-          ORDER BY pt.created_at DESC 
-          LIMIT 1
-        )`,
+        triageScore: triageScoreSubquery,
         triageLabel: sql<string | null>`(
           SELECT pt.relevance_label 
           FROM post_triage pt 
@@ -76,12 +87,20 @@ postsRoutes.get("/", async (req, res, next) => {
         )`,
       })
       .from(posts)
-      .where(conditions.length > 0 ? and(...conditions) : undefined)
+      .where(whereClause)
       .orderBy(desc(posts.firstSeenAt))
       .limit(limit)
       .offset(offset);
 
-    res.json(result);
+    const countResult = await db
+      .select({ count: sql<number>`count(*)` })
+      .from(posts)
+      .where(whereClause);
+
+    const total = countResult[0]?.count ?? 0;
+    const hasMore = offset + result.length < total;
+
+    res.json({ posts: result, total, hasMore });
   } catch (err) {
     next(err);
   }
