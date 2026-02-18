@@ -44,6 +44,7 @@ import {
   BookmarkCheck,
   WandSparkles,
   ChevronRight,
+  ChevronLeft,
 } from "lucide-react";
 
 type Preset = "all" | "needs-triage" | "high-priority" | "not-engaged" | "engaged" | "today";
@@ -262,20 +263,58 @@ export function PostsListPage() {
   const [platform, setPlatform] = useState<string>("");
   const [search, setSearch] = useState<string>("");
   const [preset, setPreset] = useState<Preset>("all");
+  const [page, setPage] = useState(0);
   const [selectedPost, setSelectedPost] = useState<Post | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
   const [savedViews, setSavedViews] = useState<SavedView[]>([]);
   const [defaultViewId, setDefaultViewId] = useState<string>("all");
   const [skippedIds, setSkippedIds] = useState<Set<number>>(new Set());
 
-  const { data: posts, isLoading, isError, error, refetch } = useQuery({
-    queryKey: ["posts", platform],
-    queryFn: () =>
-      api.posts.list({
-        limit: 200,
-        platform: platform || undefined,
-      }),
+  const PAGE_SIZE = 25;
+
+  const getQueryParams = (p: Preset) => {
+    const params: {
+      limit: number;
+      offset: number;
+      platform?: string;
+      engaged?: boolean;
+      triageStatus?: "needs-triage" | "high-priority";
+    } = {
+      limit: PAGE_SIZE,
+      offset: page * PAGE_SIZE,
+      platform: platform || undefined,
+    };
+
+    switch (p) {
+      case "all":
+        params.engaged = false;
+        break;
+      case "engaged":
+        params.engaged = true;
+        break;
+      case "not-engaged":
+        params.engaged = false;
+        break;
+      case "needs-triage":
+        params.triageStatus = "needs-triage";
+        break;
+      case "high-priority":
+        params.triageStatus = "high-priority";
+        params.engaged = false;
+        break;
+    }
+
+    return params;
+  };
+
+  const { data: response, isLoading, isError, error, refetch } = useQuery({
+    queryKey: ["posts", platform, preset, page],
+    queryFn: () => api.posts.list(getQueryParams(preset)),
   });
+
+  const posts = response?.posts ?? [];
+  const total = response?.total ?? 0;
+  const hasMore = response?.hasMore ?? false;
 
   const { data: selectedWorkspace } = useQuery<PostWorkspace | null>({
     queryKey: ["post-workspace", selectedPost?.id],
@@ -372,11 +411,6 @@ export function PostsListPage() {
 
     return posts.filter((post: Post) => {
       if (skippedIds.has(post.id)) return false;
-      if (preset === "all" && post.engaged === 1) return false;
-      if (preset === "needs-triage" && post.triageScore !== null) return false;
-      if (preset === "high-priority" && (post.triageScore === null || post.triageScore < 75 || post.engaged === 1)) return false;
-      if (preset === "not-engaged" && post.engaged === 1) return false;
-      if (preset === "engaged" && post.engaged !== 1) return false;
       if (preset === "today" && !isToday(post.firstSeenAt)) return false;
 
       if (!search) return true;
@@ -388,7 +422,6 @@ export function PostsListPage() {
   }, [posts, preset, search, skippedIds]);
 
   const presetCounts = useMemo(() => {
-    if (!posts) return { all: 0, "needs-triage": 0, "high-priority": 0, "not-engaged": 0, engaged: 0, today: 0 };
     const visible = posts.filter((p: Post) => !skippedIds.has(p.id));
     return {
       all: visible.filter((p: Post) => p.engaged !== 1).length,
@@ -450,6 +483,7 @@ export function PostsListPage() {
     setPreset(view.preset);
     setPlatform(view.platform);
     setSearch(view.search);
+    setPage(0);
   };
 
   const setAsDefault = (id: string) => {
@@ -492,7 +526,7 @@ export function PostsListPage() {
       <div className="flex flex-col gap-1">
         <div className="flex items-center justify-between">
           <h1 className="text-2xl font-bold">Posts</h1>
-          <span className="text-sm text-muted-foreground">{filteredPosts.length} in queue</span>
+          <span className="text-sm text-muted-foreground">{filteredPosts.length} in view • {total} total</span>
         </div>
         <p className="text-muted-foreground text-sm">Review → decide → engage. Shortcuts: E (engage), S (skip), D (draft), O (open).</p>
       </div>
@@ -505,7 +539,10 @@ export function PostsListPage() {
               key={p.value}
               variant={preset === p.value ? "default" : "outline"}
               size="sm"
-              onClick={() => setPreset(p.value)}
+              onClick={() => {
+                setPreset(p.value);
+                setPage(0);
+              }}
               className="shrink-0 h-9 gap-1.5 whitespace-nowrap"
             >
               <span>{p.label}</span>
@@ -525,7 +562,10 @@ export function PostsListPage() {
           />
           <Select
             value={platform}
-            onChange={(e) => setPlatform(e.target.value)}
+            onChange={(e) => {
+              setPlatform(e.target.value);
+              setPage(0);
+            }}
             options={[
               { value: "", label: "All platforms" },
               { value: "threads", label: "Threads" },
@@ -718,6 +758,35 @@ export function PostsListPage() {
                   );
                 })}
               </div>
+              {total > 0 && (
+                <div className="flex items-center justify-between p-3 border-t bg-muted/30">
+                  <span className="text-xs text-muted-foreground">
+                    {page * PAGE_SIZE + 1}-{Math.min((page + 1) * PAGE_SIZE, total)} of {total}
+                  </span>
+                  <div className="flex gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setPage((p) => Math.max(0, p - 1))}
+                      disabled={page === 0 || isLoading}
+                      className="gap-1"
+                    >
+                      <ChevronLeft className="h-4 w-4" />
+                      Prev
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setPage((p) => p + 1)}
+                      disabled={!hasMore || isLoading}
+                      className="gap-1"
+                    >
+                      Next
+                      <ChevronRight className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </div>
+              )}
             </div>
 
             <Card className="sticky top-4">
@@ -832,6 +901,35 @@ export function PostsListPage() {
             {filteredPosts.map((post: Post) => (
               <PostCard key={post.id} post={post} onDelete={setDeleteId} onSelect={handleSelectPost} />
             ))}
+            {total > 0 && (
+              <div className="flex items-center justify-between pt-3">
+                <span className="text-xs text-muted-foreground">
+                  {page * PAGE_SIZE + 1}-{Math.min((page + 1) * PAGE_SIZE, total)} of {total}
+                </span>
+                <div className="flex gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setPage((p) => Math.max(0, p - 1))}
+                    disabled={page === 0 || isLoading}
+                    className="gap-1"
+                  >
+                    <ChevronLeft className="h-4 w-4" />
+                    Prev
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setPage((p) => p + 1)}
+                    disabled={!hasMore || isLoading}
+                    className="gap-1"
+                  >
+                    Next
+                    <ChevronRight className="h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
+            )}
           </div>
         </>
       )}

@@ -59,6 +59,7 @@ export const api = {
       platform?: string;
       sourceAccountId?: string;
       engaged?: boolean;
+      triageStatus?: "needs-triage" | "high-priority";
     }) => {
       const sp = new URLSearchParams();
       if (params?.limit) sp.set("limit", String(params.limit));
@@ -66,8 +67,9 @@ export const api = {
       if (params?.platform) sp.set("platform", params.platform);
       if (params?.sourceAccountId) sp.set("sourceAccountId", params.sourceAccountId);
       if (params?.engaged !== undefined) sp.set("engaged", String(params.engaged));
+      if (params?.triageStatus) sp.set("triageStatus", params.triageStatus);
       const query = sp.toString();
-      return fetchJSON<Post[]>(`/api/posts${query ? `?${query}` : ""}`);
+      return fetchJSON<PostsListResponse>(`/api/posts${query ? `?${query}` : ""}`);
     },
     get: (id: number) => fetchJSON<PostWithComments>(`/api/posts/${id}`),
     delete: (id: number) =>
@@ -216,6 +218,7 @@ import type {
   RunTriggerRequest,
   RunTriggerResponse,
   Post,
+  PostsListResponse,
   PostWithComments,
   PostWorkspace,
   GenerateDraftsResult,
@@ -236,6 +239,7 @@ export type {
   RunTriggerRequest,
   RunTriggerResponse,
   Post,
+  PostsListResponse,
   PostWithComments,
   PostWorkspace,
   GenerateDraftsResult,

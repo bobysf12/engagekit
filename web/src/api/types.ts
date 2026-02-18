@@ -79,6 +79,12 @@ export interface Post {
   triageAction: string | null;
 }
 
+export interface PostsListResponse {
+  posts: Post[];
+  total: number;
+  hasMore: boolean;
+}
+
 export interface PostWithComments extends Post {
   comments: Comment[];
 }
