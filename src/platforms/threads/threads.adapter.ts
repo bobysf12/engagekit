@@ -7,6 +7,7 @@ import { THREADS_SELECTORS } from "./selectors";
 import { performThreadsLogin, validateThreadsSession } from "./auth";
 import { actionDelay } from "../../core/cooldown";
 import { logger } from "../../core/logger";
+import { detectBlockChallenge } from "../../services/browser-session";
 
 // Type for the post extraction result from page.evaluate
 interface ExtractedPost {
@@ -57,22 +58,98 @@ export class ThreadsAdapter implements PlatformAdapter {
   }
 
   private async safeGoto(page: Page, url: string, source: string): Promise<void> {
-    try {
-      await page.goto(url, {
-        waitUntil: "domcontentloaded",
-        timeout: 12000,
-      });
-    } catch (error) {
-      logger.debug({ error, url, source }, "Threads navigation timeout, continuing with current DOM");
+    const currentUrl = page.url();
+    const isSameOrigin = currentUrl.startsWith(THREADS_SELECTORS.HOME_URL) && url.startsWith(THREADS_SELECTORS.HOME_URL);
+    const isAlreadyOnTarget = currentUrl === url || (isSameOrigin && this.isSamePage(currentUrl, url));
+    
+    if (isAlreadyOnTarget) {
+      logger.debug({ currentUrl, targetUrl: url, source }, "Already on target page, skipping hard navigation");
+      await page.waitForTimeout(800);
+      return;
+    }
+    
+    if (isSameOrigin) {
+      logger.debug({ currentUrl, targetUrl: url, source }, "Same-origin navigation, using soft transition");
+      try {
+        await page.goto(url, {
+          waitUntil: "domcontentloaded",
+          timeout: 8000,
+        });
+      } catch (error) {
+        logger.debug({ error, url, source }, "Soft navigation timeout, continuing with current DOM");
+      }
+      await page.waitForLoadState("domcontentloaded", { timeout: 3000 }).catch(() => undefined);
+      await page.waitForTimeout(1500);
+    } else {
+      try {
+        await page.goto(url, {
+          waitUntil: "domcontentloaded",
+          timeout: 12000,
+        });
+      } catch (error) {
+        logger.debug({ error, url, source }, "Threads navigation timeout, continuing with current DOM");
+      }
+      await page.waitForLoadState("domcontentloaded", { timeout: 5000 }).catch(() => undefined);
+      await page.waitForTimeout(2500);
     }
 
-    await page.waitForLoadState("domcontentloaded", { timeout: 5000 }).catch(() => undefined);
-    await page.waitForTimeout(2500);
+    const finalUrl = page.url();
+    const blockStatus = detectBlockChallenge(finalUrl);
+    if (blockStatus.isBlocked) {
+      logger.error(
+        { url: finalUrl, targetUrl: url, source, reason: blockStatus.reason, stage: "navigation" },
+        "Threads block/challenge detected during navigation"
+      );
+    } else {
+      logger.debug(
+        { url: finalUrl, targetUrl: url, source, stage: "navigation" },
+        "Threads navigation completed"
+      );
+    }
+  }
+
+  private isSamePage(url1: string, url2: string): boolean {
+    try {
+      const u1 = new URL(url1);
+      const u2 = new URL(url2);
+      return u1.pathname === u2.pathname && u1.search === u2.search;
+    } catch {
+      return false;
+    }
+  }
+
+  private logBlockTelemetry(page: Page, source: string, extra?: Record<string, unknown>): void {
+    const url = page.url();
+    const blockStatus = detectBlockChallenge(url);
+    if (blockStatus.isBlocked) {
+      logger.error(
+        { url, source, reason: blockStatus.reason, ...extra },
+        "Threads block/challenge telemetry"
+      );
+    }
   }
 
   async validateSession(page: Page): Promise<AuthState> {
     logger.debug("Validating Threads session");
-    return validateThreadsSession(page);
+    const result = await validateThreadsSession(page);
+    
+    if (!result.isValid) {
+      const url = page.url();
+      const blockStatus = detectBlockChallenge(url);
+      if (blockStatus.isBlocked) {
+        logger.error(
+          { url, reason: blockStatus.reason, authError: result.error, stage: "auth_validation" },
+          "Threads block/challenge detected during session validation"
+        );
+      } else {
+        logger.warn(
+          { url, authError: result.error, stage: "auth_validation" },
+          "Threads session validation failed"
+        );
+      }
+    }
+    
+    return result;
   }
 
   performLogin(page: Page, handle: string): Promise<void> {
@@ -114,9 +191,11 @@ export class ThreadsAdapter implements PlatformAdapter {
   private async collectPostsFromCurrentPage(page: Page, maxPosts: number, source: string): Promise<CollectedPost[]> {
     const postById = new Map<string, CollectedPost>();
     let previousUniqueCount = 0;
+    let navigationTimeoutCount = 0;
 
     try {
       for (let pass = 0; pass < 8 && postById.size < maxPosts; pass++) {
+        this.logBlockTelemetry(page, source, { pass, postsCollected: postById.size });
         // Extract posts by locating the nearest post container and filtering text nodes.
         const posts = await page.evaluate((homeUrl): ExtractedPost[] => {
           // eslint-disable-next-line no-var
@@ -252,22 +331,33 @@ export class ThreadsAdapter implements PlatformAdapter {
 
         await page.mouse.wheel(0, 2200);
         await page.waitForTimeout(1000);
+        
+        const currentUrl = page.url();
+        const blockStatus = detectBlockChallenge(currentUrl);
+        if (blockStatus.isBlocked) {
+          logger.error(
+            { url: currentUrl, source, pass, reason: blockStatus.reason, stage: "scroll" },
+            "Threads block/challenge detected during scroll"
+          );
+          break;
+        }
       }
 
       const resultPosts = Array.from(postById.values()).slice(0, maxPosts);
       
-      // Log stats about body text extraction
       const withBody = resultPosts.filter(p => p.bodyText && p.bodyText.length > 0).length;
       logger.debug({ 
         source, 
         collected: resultPosts.length, 
         withBodyText: withBody,
-        withoutBodyText: resultPosts.length - withBody 
+        withoutBodyText: resultPosts.length - withBody,
+        navigationTimeoutCount 
       }, "Threads posts collected");
       
       return resultPosts;
     } catch (error) {
-      logger.error({ error, source }, "Failed to collect Threads posts");
+      this.logBlockTelemetry(page, source, { error: String(error) });
+      logger.error({ error, source, navigationTimeoutCount }, "Failed to collect Threads posts");
       throw new NavigationError("Failed to collect Threads posts", "COLLECT_POSTS_FAILED");
     }
   }
@@ -320,9 +410,18 @@ export class ThreadsAdapter implements PlatformAdapter {
     }
 
     try {
-      await page.goto(post.postUrl, { waitUntil: "domcontentloaded", timeout: 12000 });
-      await page.waitForLoadState("domcontentloaded", { timeout: 4000 }).catch(() => undefined);
-      await page.waitForTimeout(800);
+      const currentUrl = page.url();
+      const isAlreadyOnPost = currentUrl === post.postUrl;
+      
+      if (isAlreadyOnPost) {
+        logger.debug({ postId: post.platformPostId }, "Already on post page, skipping navigation");
+      } else {
+        await page.goto(post.postUrl, { waitUntil: "domcontentloaded", timeout: 12000 });
+        await page.waitForLoadState("domcontentloaded", { timeout: 4000 }).catch(() => undefined);
+        await page.waitForTimeout(800);
+      }
+      
+      this.logBlockTelemetry(page, `comments:${post.platformPostId}`);
 
       let expandClicks = 0;
       for (let pass = 0; pass < 6; pass++) {
@@ -346,7 +445,6 @@ export class ThreadsAdapter implements PlatformAdapter {
               await page.waitForTimeout(700);
             }
           } catch {
-            // Ignore stale or detached buttons and continue.
           }
         }
 
@@ -573,9 +671,16 @@ export class ThreadsAdapter implements PlatformAdapter {
     }
 
     try {
-      await page.goto(entityRef, { waitUntil: "domcontentloaded", timeout: 3500 });
-      await page.waitForLoadState("networkidle", { timeout: 1200 }).catch(() => undefined);
-      await page.waitForTimeout(700);
+      const currentUrl = page.url();
+      const isAlreadyOnPage = currentUrl === entityRef;
+      
+      if (!isAlreadyOnPage) {
+        await page.goto(entityRef, { waitUntil: "domcontentloaded", timeout: 3500 });
+        await page.waitForLoadState("networkidle", { timeout: 1200 }).catch(() => undefined);
+        await page.waitForTimeout(700);
+      }
+      
+      this.logBlockTelemetry(page, `metrics:${entityType}:${entityRef}`);
 
       const extraction = await page.evaluate((targetUrl) => {
         const cleanText = (value: string | null | undefined): string =>

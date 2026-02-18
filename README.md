@@ -67,6 +67,18 @@ bun run cli scrape:account --account 1
 bun run cli pipeline:run --run-account 1
 ```
 
+### Persistent Browser Sessions (Threads)
+
+For Threads scraping, the system uses persistent browser contexts to maintain login state across runs and reduce block/challenge risk. Profile data is stored in:
+
+```
+data/sessions/profiles/threads-account-<id>/
+```
+
+Each account gets its own isolated browser profile, preserving cookies, localStorage, and other session artifacts between runs. This makes scraping behavior more "sticky" and human-like.
+
+If persistent context fails, the system falls back to the traditional storageState approach using the session blob in the database.
+
 - Inspect output:
 
 ```bash
