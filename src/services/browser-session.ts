@@ -59,7 +59,7 @@ export function detectBlockChallenge(url: string): { isBlocked: boolean; reason:
   return { isBlocked: false, reason: null };
 }
 
-async function hydrateContextFromStorageState(
+export async function hydrateContextFromStorageState(
   context: BrowserContext,
   storageState: StorageState,
 ): Promise<void> {

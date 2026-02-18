@@ -17,6 +17,7 @@ import {
   launchPersistentContext,
   closeContextSafely,
   detectBlockChallenge,
+  hydrateContextFromStorageState,
 } from "../services/browser-session";
 
 export interface ScrapeResult {
@@ -24,6 +25,29 @@ export interface ScrapeResult {
   commentsFound: number;
   snapshotsWritten: number;
   error?: { code: string; message: string };
+}
+
+async function closeContextWithTimeout(
+  context: BrowserContext | null,
+  accountId: number,
+  timeoutMs = 5000,
+): Promise<void> {
+  if (!context) return;
+
+  let timedOut = false;
+  await Promise.race([
+    closeContextSafely(context),
+    new Promise<void>((resolve) =>
+      setTimeout(() => {
+        timedOut = true;
+        resolve();
+      }, timeoutMs),
+    ),
+  ]);
+
+  if (timedOut) {
+    logger.warn({ accountId, timeoutMs }, "Timed out while closing persistent context; continuing with fallback");
+  }
 }
 
 export class AccountScrapeRunner {
@@ -130,26 +154,17 @@ export class AccountScrapeRunner {
       }
 
       let authState = await this.adapter.validateSession(page);
-      if (!authState.isValid && usePersistentContext && storageStateForFallback) {
+      if (!authState.isValid && usePersistentContext && storageStateForFallback && context) {
         logger.warn(
           { accountId: this.account.id, authError: authState.error },
-          "Persistent context validation failed; retrying with storageState fallback"
+          "Persistent context validation failed; hydrating persistent context from storageState and retrying"
         );
 
-        await closeContextSafely(context);
-        usePersistentContext = false;
-        context = null;
-        page = null;
+        await hydrateContextFromStorageState(context, storageStateForFallback);
 
-        browser = await chromium.launch({
-          headless: env.PLAYWRIGHT_HEADLESS,
-          slowMo: env.PLAYWRIGHT_SLOW_MO,
-        });
-
-        context = await browser.newContext({
-          storageState: storageStateForFallback as any,
-        });
-
+        if (page) {
+          await page.close().catch(() => undefined);
+        }
         page = await context.newPage();
         page.setDefaultNavigationTimeout(12000);
         page.setDefaultTimeout(12000);
@@ -396,7 +411,7 @@ export class AccountScrapeRunner {
             await page.close().catch(() => {});
           } catch {}
         }
-        await closeContextSafely(context);
+        await closeContextWithTimeout(context, this.account.id);
       } else {
         if (page) await page.close().catch(() => {});
         if (context) await context.close().catch(() => {});
