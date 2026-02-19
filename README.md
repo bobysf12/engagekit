@@ -1,5 +1,10 @@
 # Engagekit — Multi-Account Engagement Copilot for Threads
 
+
+https://github.com/user-attachments/assets/b92f2184-8114-4c89-96d2-4a586e9a0857
+
+
+
 Engagekit is a **human-in-the-loop** scraping and response-assist tool for Threads.
 It helps teams:
 
